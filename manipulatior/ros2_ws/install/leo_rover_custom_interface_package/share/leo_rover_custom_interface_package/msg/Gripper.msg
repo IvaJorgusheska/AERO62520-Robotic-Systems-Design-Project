@@ -1,0 +1,2 @@
+# Gripper.msg
+bool grip
