@@ -1,0 +1,12 @@
+{
+  "package_name": "leo_rover_custom_interface_package",
+  "output_dir": "/home/student35/Documents/Group5/ros2_ws/build/leo_rover_custom_interface_package/rosidl_generator_type_description/leo_rover_custom_interface_package",
+  "idl_tuples": [
+    "/home/student35/Documents/Group5/ros2_ws/build/leo_rover_custom_interface_package/rosidl_adapter/leo_rover_custom_interface_package:msg/GripperState.idl",
+    "/home/student35/Documents/Group5/ros2_ws/build/leo_rover_custom_interface_package/rosidl_adapter/leo_rover_custom_interface_package:msg/GripperPose.idl"
+  ],
+  "include_paths": [
+    "geometry_msgs:/opt/ros/jazzy/share/geometry_msgs",
+    "std_msgs:/opt/ros/jazzy/share/std_msgs"
+  ]
+}

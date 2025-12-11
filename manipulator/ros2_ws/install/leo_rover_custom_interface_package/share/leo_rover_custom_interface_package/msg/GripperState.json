@@ -1,0 +1,26 @@
+{
+  "type_description_msg": {
+    "type_description": {
+      "type_name": "leo_rover_custom_interface_package/msg/GripperState",
+      "fields": [
+        {
+          "name": "grip",
+          "type": {
+            "type_id": 15,
+            "capacity": 0,
+            "string_capacity": 0,
+            "nested_type_name": ""
+          },
+          "default_value": ""
+        }
+      ]
+    },
+    "referenced_type_descriptions": []
+  },
+  "type_hashes": [
+    {
+      "type_name": "leo_rover_custom_interface_package/msg/GripperState",
+      "hash_string": "RIHS01_8b82afd76ecc0559c3be67adaa4fc62c6bd183d2eb54957a4d770421610d4a97"
+    }
+  ]
+}

@@ -1,0 +1,242 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"childIndexes" : 
+					[
+						1
+					],
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-.-054cbc597eb99cd001ce.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.20"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						5,
+						6,
+						7,
+						8,
+						9,
+						10,
+						11,
+						12,
+						13,
+						14,
+						15,
+						16,
+						17,
+						18
+					]
+				},
+				{
+					"build" : "leo_rover_custom_interface_package__py",
+					"jsonFile" : "directory-leo_rover_custom_interface_package__py-bcfcd3247d471c042e52.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.20"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "/home/student35/Documents/Group5/ros2_ws/build/leo_rover_custom_interface_package/leo_rover_custom_interface_package__py",
+					"targetIndexes" : 
+					[
+						4
+					]
+				}
+			],
+			"name" : "",
+			"projects" : 
+			[
+				{
+					"directoryIndexes" : 
+					[
+						0,
+						1
+					],
+					"name" : "leo_rover_custom_interface_package",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7,
+						8,
+						9,
+						10,
+						11,
+						12,
+						13,
+						14,
+						15,
+						16,
+						17,
+						18
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "ament_cmake_python_build_leo_rover_custom_interface_package_egg::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ament_cmake_python_build_leo_rover_custom_interface_package_egg-31ea6e74829ebb9fb7ae.json",
+					"name" : "ament_cmake_python_build_leo_rover_custom_interface_package_egg",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "ament_cmake_python_copy_leo_rover_custom_interface_package::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ament_cmake_python_copy_leo_rover_custom_interface_package-3e9e052a59b0f20d70c9.json",
+					"name" : "ament_cmake_python_copy_leo_rover_custom_interface_package",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "leo_rover_custom_interface_package::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-leo_rover_custom_interface_package-7cecee457225ec5ac6c1.json",
+					"name" : "leo_rover_custom_interface_package",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "leo_rover_custom_interface_package__cpp::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-leo_rover_custom_interface_package__cpp-f1da00e55a9197784e52.json",
+					"name" : "leo_rover_custom_interface_package__cpp",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "leo_rover_custom_interface_package__py::@71a0ed9e03dcbff7444f",
+					"jsonFile" : "target-leo_rover_custom_interface_package__py-7fa71b66521ee0b9e5bf.json",
+					"name" : "leo_rover_custom_interface_package__py",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "leo_rover_custom_interface_package__rosidl_generator_c::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-leo_rover_custom_interface_package__rosidl_generator_c-51bb54aae0c72add4411.json",
+					"name" : "leo_rover_custom_interface_package__rosidl_generator_c",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "leo_rover_custom_interface_package__rosidl_generator_py::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-leo_rover_custom_interface_package__rosidl_generator_py-666fc905b86ec0c55a66.json",
+					"name" : "leo_rover_custom_interface_package__rosidl_generator_py",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "leo_rover_custom_interface_package__rosidl_generator_type_description::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-leo_rover_custom_interface_package__rosidl_generator_type_description-fb9d041877a8fa3f472f.json",
+					"name" : "leo_rover_custom_interface_package__rosidl_generator_type_description",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "leo_rover_custom_interface_package__rosidl_typesupport_c::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-leo_rover_custom_interface_package__rosidl_typesupport_c-8229c58c7c0a9848f30a.json",
+					"name" : "leo_rover_custom_interface_package__rosidl_typesupport_c",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "leo_rover_custom_interface_package__rosidl_typesupport_cpp::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-leo_rover_custom_interface_package__rosidl_typesupport_cpp-20fe1c5c1531c569cd3d.json",
+					"name" : "leo_rover_custom_interface_package__rosidl_typesupport_cpp",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "leo_rover_custom_interface_package__rosidl_typesupport_fastrtps_c::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-leo_rover_custom_interface_package__rosidl_typesupport_fastrtps_c-5bb8097eaa21ef26a892.json",
+					"name" : "leo_rover_custom_interface_package__rosidl_typesupport_fastrtps_c",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "leo_rover_custom_interface_package__rosidl_typesupport_fastrtps_cpp::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-leo_rover_custom_interface_package__rosidl_typesupport_fastrtps_cpp-1bd692953e52cdab38d9.json",
+					"name" : "leo_rover_custom_interface_package__rosidl_typesupport_fastrtps_cpp",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "leo_rover_custom_interface_package__rosidl_typesupport_introspection_c::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-leo_rover_custom_interface_package__rosidl_typesupport_introspection_c-9bd2c14d982e8833a822.json",
+					"name" : "leo_rover_custom_interface_package__rosidl_typesupport_introspection_c",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "leo_rover_custom_interface_package__rosidl_typesupport_introspection_cpp::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-leo_rover_custom_interface_package__rosidl_typesupport_introspection_cpp-08a6b53c21f8fede6477.json",
+					"name" : "leo_rover_custom_interface_package__rosidl_typesupport_introspection_cpp",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "leo_rover_custom_interface_package_s__rosidl_typesupport_c::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-leo_rover_custom_interface_package_s__rosidl_typesupport_c-3dc94f2d89cb5e3df65c.json",
+					"name" : "leo_rover_custom_interface_package_s__rosidl_typesupport_c",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "leo_rover_custom_interface_package_s__rosidl_typesupport_fastrtps_c::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-leo_rover_custom_interface_package_s__rosidl_typesupport_fastrtps_c-3b2fbf46dd508139b1b1.json",
+					"name" : "leo_rover_custom_interface_package_s__rosidl_typesupport_fastrtps_c",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "leo_rover_custom_interface_package_s__rosidl_typesupport_introspection_c::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-leo_rover_custom_interface_package_s__rosidl_typesupport_introspection_c-ab14cdbe47143e607c36.json",
+					"name" : "leo_rover_custom_interface_package_s__rosidl_typesupport_introspection_c",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "leo_rover_custom_interface_package_uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-leo_rover_custom_interface_package_uninstall-b59798c4505ed1e53be9.json",
+					"name" : "leo_rover_custom_interface_package_uninstall",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-uninstall-71934b0ef7f77657a880.json",
+					"name" : "uninstall",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "/home/student35/Documents/Group5/ros2_ws/build/leo_rover_custom_interface_package",
+		"source" : "/home/student35/Documents/Group5/ros2_ws/src/leo_rover_custom_interface_package"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 6
+	}
+}
