@@ -1,2 +1,0 @@
-[console_scripts]
-manipulator_control_node = manipulator_control.manipulator_control_node:main

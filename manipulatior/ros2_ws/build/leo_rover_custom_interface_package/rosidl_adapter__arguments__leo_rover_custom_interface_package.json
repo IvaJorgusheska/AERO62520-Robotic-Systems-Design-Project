@@ -1,7 +1,0 @@
-{
-  "package_name": "leo_rover_custom_interface_package",
-  "non_idl_tuples": [
-    "/home/student35/Documents/Group5/ros2_ws/src/leo_rover_custom_interface_package:msg/GripperState.msg",
-    "/home/student35/Documents/Group5/ros2_ws/src/leo_rover_custom_interface_package:msg/GripperPose.msg"
-  ]
-}
