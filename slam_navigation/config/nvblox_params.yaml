@@ -1,0 +1,32 @@
+/**:
+  ros__parameters:
+    # 通用参数
+    use_sim_time: false
+    global_frame: map
+    robot_frame: base_link
+
+
+    voxel_size: 0.05
+    max_integration_distance_m: 5.0
+    mesh_integration_rate_hz: 5.0
+    esdf_integration_rate_hz: 5.0
+    color_integration_rate_hz: 5.0
+
+
+    depth_topic: /camera/depth/image_rect_raw
+    color_topic: /camera/color/image_raw
+    camera_info_topic: /camera/color/camera_info
+    transform_topic: /tf
+
+
+    mesh_topic: /nvblox_mesh
+    esdf_topic: /nvblox_esdf
+    slice_topic: /nvblox_slice
+
+
+    publish_slice: true
+    slice_height: 1.0
+
+
+    max_num_voxel_blocks: 50000
+    max_voxels_per_frame: 100000
