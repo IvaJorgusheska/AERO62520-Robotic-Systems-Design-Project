@@ -8,6 +8,7 @@ import sys
 from my_robot_interfaces.msg import ErrorStatus
 
 # === State Constants ===
+STATE_INIT = 0
 STATE_SEARCH = 1
 STATE_MOVE_TO_TARGET = 2
 STATE_GRASP = 3
@@ -19,9 +20,10 @@ class RobotControlNode(Node):
         super().__init__('robot_control_node')
 
         # === Internal Variables ===
-        self.current_state = STATE_SEARCH
+        self.current_state = STATE_INIT
         self.cycle_count = 0  # Counter for completed tasks (n)
         self.max_cycles = 3   # Stop after 3 cycles
+        self.hardware_ready = {'camera': False, 'nav': False, 'arm': False}
 
         # === Publishers ===
         # Publishing status flags only on state transitions
@@ -31,27 +33,53 @@ class RobotControlNode(Node):
         self.pub_return = self.create_publisher(Bool, '/status/returning', 10)
 
         # === Subscribers ===
-        
         # 1. Object Detection (Triggers Search -> Move)
         self.sub_detect = self.create_subscription(
             Bool, '/detected_object', self.detect_callback, 10)
-        
         # 2. Movement Feedback (Triggers Move -> Grasp AND Return -> Drop)
         self.sub_move_fb = self.create_subscription(
             Bool, '/move_feedback', self.move_feedback_callback, 10)
-        
         # 3. Manipulator Feedback (Triggers Grasp -> Return AND Drop -> Search)
         self.sub_manip_fb = self.create_subscription(
             Bool, '/manipulator_feedback', self.manip_feedback_callback, 10)
-
         # 4. Error Status Monitoring
         self.sub_error = self.create_subscription(
             ErrorStatus, '/status_error', self.error_callback, 10)
+        self.get_logger().info(f'Node initialized. State: INIT. Cycle: {self.cycle_count}')
+        # 5. Hardware Readiness Check Timer (Polls every 1 second)
+        self.init_timer = self.create_timer(1.0, self.check_hardware_readiness)
 
-        self.get_logger().info(f'Node initialized. State: SEARCH. Cycle: {self.cycle_count}')
-        
-        # Publish the initial state (Search) once upon startup
-        self.publish_state_flags(moving=True, arm=False, returning=False)
+    def check_hardware_readiness(self):
+        """
+        Periodically checks if all hardware nodes are online.
+        Only transitions to SEARCH state when everyone is ready.
+        """
+        if self.current_state != STATE_INIT:
+            self.init_timer.cancel()
+            return
+        # 1. /detected_object Publisher indicates Camera Node is online
+        if not self.hardware_ready['camera']:
+            if self.count_publishers('/detected_object') > 0:
+                self.hardware_ready['camera'] = True
+                self.get_logger().info('[Check] Camera Node: ONLINE ✅')
+        # 2. /move_feedback Publisher indicates Navigation Node is online
+        if not self.hardware_ready['nav']:
+            if self.count_publishers('/move_feedback') > 0:
+                self.hardware_ready['nav'] = True
+                self.get_logger().info('[Check] Navigation Node: ONLINE ✅')
+        # 3. /manipulator_feedback Publisher indicates Manipulator Node is online
+        if not self.hardware_ready['arm']:
+            if self.count_publishers('/manipulator_feedback') > 0:
+                self.hardware_ready['arm'] = True
+                self.get_logger().info('[Check] Manipulator Node: ONLINE ✅')
+        # If all hardware is ready, transition to SEARCH state
+        if all(self.hardware_ready.values()):
+            self.get_logger().info('='*40)
+            self.get_logger().info('>>> ALL SYSTEMS GO! Starting Mission... <<<')
+            self.get_logger().info('='*40)
+            self.current_state = STATE_SEARCH
+            self.publish_state_flags(moving=True, arm=False, returning=False)
+            self.init_timer.cancel()
 
     def publish_state_flags(self, moving: bool, arm: bool, returning: bool):
         """

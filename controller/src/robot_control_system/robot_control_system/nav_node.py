@@ -1,6 +1,6 @@
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import String
+from std_msgs.msg import String, Bool
 from geometry_msgs.msg import PoseStamped
 from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
 import json
@@ -13,6 +13,12 @@ class MissionController(Node):
         # 1. 初始化 Nav2 API
         self.navigator = BasicNavigator()
         
+        # [新增] FSM 接口适配
+        # A. 自检发布者: 只要这行运行，FSM 就能检测到导航节点在线
+        self.pub_check = self.create_publisher(Bool, '/move_feedback', 10)        
+        # B. 监听 FSM 指令: 接收 True(出发) / False(停止)
+        self.sub_fsm = self.create_subscription(Bool, '/status/moving', self.fsm_callback, 10)
+
         # 2. 订阅外部指令话题
         # 假设指令格式为 JSON: {"mode": "nav", "x": 1.5, "y": 2.0} 或 {"mode": "explore"}
         self.subscription = self.create_subscription(
@@ -25,6 +31,23 @@ class MissionController(Node):
         self.explore_process = None
         
         self.get_logger().info('Mission Controller Started. Waiting for commands...')
+
+    # [新增] FSM 回调函数
+    def fsm_callback(self, msg):
+        """
+        处理 FSM 发来的简单的 True/False 信号
+        """
+        if msg.data:
+            self.get_logger().info("[FSM] Auto-Start Triggered!")
+            # 收到 True 后，执行默认任务。
+            # 你可以选择:
+            # 1. 去一个固定的测试点:
+            self.start_navigation(1.5, 0.5) 
+            # 2. 或者开始全自动探索:
+            # self.start_exploration()
+        else:
+            # 收到 False，停止一切
+            self.stop_all()
 
     def command_callback(self, msg):
         try:
