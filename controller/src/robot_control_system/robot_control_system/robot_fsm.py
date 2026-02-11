@@ -1,6 +1,7 @@
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Bool
+from geometry_msgs.msg import PoseStamped
 import sys
 
 # Import custom message for error handling
@@ -23,7 +24,11 @@ class RobotControlNode(Node):
         self.current_state = STATE_INIT
         self.cycle_count = 0  # Counter for completed tasks (n)
         self.max_cycles = 3   # Stop after 3 cycles
+
         self.hardware_ready = {'camera': False, 'nav': False, 'arm': False}
+
+        self.latest_object_pose = None
+
 
         # === Publishers ===
         # Publishing status flags only on state transitions
@@ -32,10 +37,16 @@ class RobotControlNode(Node):
         self.pub_arm = self.create_publisher(Bool, '/status/arm_active', 10)
         self.pub_return = self.create_publisher(Bool, '/status/returning', 10)
 
+
         # === Subscribers ===
         # 1. Object Detection (Triggers Search -> Move)
         self.sub_detect = self.create_subscription(
             Bool, '/detected_object', self.detect_callback, 10)
+
+        # Latest object pose (not used for state transitions but used for manipulation and navigation)
+        self.sub_object_pose = self.create_subscription(
+            PoseStamped, '/object_pose', self.object_pose_callback,10)
+
         # 2. Movement Feedback (Triggers Move -> Grasp AND Return -> Drop)
         self.sub_move_fb = self.create_subscription(
             Bool, '/move_feedback', self.move_feedback_callback, 10)
@@ -126,6 +137,19 @@ class RobotControlNode(Node):
             
             # Logic: Moving=True, Arm=False, Return=False
             self.publish_state_flags(moving=True, arm=False, returning=False)
+
+    def object_pose_callback(self, msg):
+        """
+        Stores the latest detected object pose.
+        """
+        self.latest_object_pose = msg
+        self.get_logger().debug(
+            f"Received object pose: "
+            f"x={msg.pose.position.x:.2f}, "
+            f"y={msg.pose.position.y:.2f}, "
+            f"z={msg.pose.position.z:.2f}"
+        )
+
 
     def move_feedback_callback(self, msg):
         """
