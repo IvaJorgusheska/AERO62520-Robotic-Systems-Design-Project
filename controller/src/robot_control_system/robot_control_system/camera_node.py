@@ -8,6 +8,9 @@ import pyrealsense2 as rs
 import numpy as np
 import cv2
 from ultralytics import YOLO
+import os
+from ament_index_python.packages import get_package_share_directory
+
 ##ADD Only then: add TF (camera_link → base_link) 
 
 class VisionNode(Node):
@@ -23,7 +26,12 @@ class VisionNode(Node):
         # ----------------------------
         # Load YOLO model
         # ----------------------------
-        self.model = YOLO("best.pt")
+        pkg_path = get_package_share_directory('robot_control_system')
+        model_path = os.path.join(pkg_path, 'best.pt')
+
+        self.get_logger().info(f"Loading model from: {model_path}")
+        self.model = YOLO(model_path)
+        # self.model = YOLO("best.pt")
         self.get_logger().info("YOLO model loaded")
 
         # ----------------------------
