@@ -3,6 +3,8 @@ from rclpy.node import Node
 
 from std_msgs.msg import Bool
 from geometry_msgs.msg import PoseStamped
+from my_robot_interfaces.msg import ObjectTarget
+
 
 import pyrealsense2 as rs
 import numpy as np
@@ -20,8 +22,10 @@ class VisionNode(Node):
         # ----------------------------
         # Publishers
         # ----------------------------
-        self.pub_detected = self.create_publisher(Bool, '/detected_object', 10)
+        # self.pub_detected = self.create_publisher(Bool, '/detected_object', 10)
+        self.pub_detected = self.create_publisher(ObjectTarget, '/detected_object', 10)
         self.pub_pose = self.create_publisher(PoseStamped, '/object_pose', 10)
+
 
         # ----------------------------
         # Load YOLO model
@@ -31,6 +35,8 @@ class VisionNode(Node):
 
         self.get_logger().info(f"Loading model from: {model_path}")
         self.model = YOLO(model_path)
+        self.class_names = self.model.names
+
         # self.model = YOLO("best.pt")
         self.get_logger().info("YOLO model loaded")
 
@@ -83,15 +89,29 @@ class VisionNode(Node):
         results = self.model(color_image, conf=0.5, verbose=False)
 
         if len(results[0].boxes) == 0:
-            msg = Bool()
-            msg.data = False
+            msg = ObjectTarget()
+            msg.observe_state = False
+            msg.object_name = ""
+            msg.color = ""
             self.pub_detected.publish(msg)
             return
+
 
         # ----------------------------
         # Single-object logic (first box)
         # ----------------------------
         box = results[0].boxes[0]
+        cls_id = int(box.cls[0])
+        object_name = self.class_names[cls_id]
+
+        if "red" in object_name:
+            color = "red"
+        elif "yellow" in object_name:
+            color = "yellow"
+        elif "purple" in object_name:
+            color = "purple"
+        else:
+            color = "unknown"
         x1, y1, x2, y2 = map(int, box.xyxy[0])
 
         u = int((x1 + x2) / 2)
@@ -112,9 +132,11 @@ class VisionNode(Node):
         # ----------------------------
         # Publish detection flag
         # ----------------------------
-        detected_msg = Bool()
-        detected_msg.data = True
-        self.pub_detected.publish(detected_msg)
+        msg = ObjectTarget()
+        msg.observe_state = True
+        msg.object_name = object_name
+        msg.color = color
+        self.pub_detected.publish(msg)
 
         # ----------------------------
         # Publish pose (camera frame)
