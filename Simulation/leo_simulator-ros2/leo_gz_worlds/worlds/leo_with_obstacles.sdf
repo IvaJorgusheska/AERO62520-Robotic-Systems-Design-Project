@@ -1,0 +1,239 @@
+<?xml version="1.0"?>
+<sdf version="1.8">
+  <world name="leo_with_obstacles">
+    <physics name="1ms" type="ignored">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <plugin
+      filename="gz-sim-physics-system"
+      name="gz::sim::systems::Physics">
+    </plugin>
+    <plugin
+      filename="gz-sim-sensors-system"
+      name="gz::sim::systems::Sensors">
+    </plugin>
+    <plugin
+      filename="gz-sim-scene-broadcaster-system"
+      name="gz::sim::systems::SceneBroadcaster">
+    </plugin>
+    <plugin
+      filename="gz-sim-user-commands-system"
+      name="gz::sim::systems::UserCommands">
+    </plugin>
+    <plugin filename="gz-sim-imu-system"
+      name="gz::sim::systems::Imu">
+    </plugin>
+
+    <light name="sun" type="directional">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <!-- 地面 -->
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+          <surface>
+            <friction>
+              <ode>
+                <mu>50</mu>
+              </ode>
+              <bullet>
+                <friction>1</friction>
+                <friction2>1</friction2>
+                <rolling_friction>0.1</rolling_friction>
+              </bullet>
+            </friction>
+          </surface>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+            <specular>0.8 0.8 0.8 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 方法1: 直接在SDF中添加简单几何障碍物 -->
+    
+    <!-- 障碍物1: 立方体盒子 -->
+    <model name="obstacle_box_1">
+      <pose>3 0 0.5 0 0 0</pose>
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>1 1 1</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>1 1 1</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.8 0.2 0.2 1</ambient>
+            <diffuse>0.8 0.2 0.2 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 障碍物2: 圆柱体 -->
+    <model name="obstacle_cylinder_1">
+      <pose>-3 2 0.5 0 0 0</pose>
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <cylinder>
+              <radius>0.5</radius>
+              <length>1</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <cylinder>
+              <radius>0.5</radius>
+              <length>1</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.2 0.8 0.2 1</ambient>
+            <diffuse>0.2 0.8 0.2 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 障碍物3: 球体 -->
+    <model name="obstacle_sphere_1">
+      <pose>0 3 0.5 0 0 0</pose>
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <sphere>
+              <radius>0.5</radius>
+            </sphere>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <sphere>
+              <radius>0.5</radius>
+            </sphere>
+          </geometry>
+          <material>
+            <ambient>0.2 0.2 0.8 1</ambient>
+            <diffuse>0.2 0.2 0.8 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 障碍物4: 多个盒子组成的墙 -->
+    <model name="obstacle_wall_1">
+      <pose>5 0 0.5 0 0 0</pose>
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.5 3 1</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.5 3 1</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.6 0.6 0.2 1</ambient>
+            <diffuse>0.6 0.6 0.2 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 障碍物5: 倾斜的障碍物 -->
+    <model name="obstacle_tilted_1">
+      <pose>-5 -3 0.5 0 0 0.785</pose>
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>1.5 0.5 1</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>1.5 0.5 1</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.8 0.4 0.2 1</ambient>
+            <diffuse>0.8 0.4 0.2 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 方法2: 使用include包含自定义模型 -->
+    <!-- 示例：包含自定义障碍物模型 -->
+    <model name="custom_obstacle_1">
+      <include>
+        <uri>model://simple_box_obstacle</uri>
+        <pose>0 -5 0.5 0 0 0</pose>
+      </include>
+    </model>
+
+    <model name="custom_obstacle_2">
+      <include>
+        <uri>model://simple_box_obstacle</uri>
+        <pose>2 -5 0.5 0 0 0.785</pose>
+      </include>
+    </model>
+
+  </world>
+</sdf>
