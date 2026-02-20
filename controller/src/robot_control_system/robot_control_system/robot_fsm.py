@@ -1,3 +1,47 @@
+"""
+=======================================================================================
+Robot Finite State Machine (FSM) Node - Central Controller
+=======================================================================================
+Design Philosophy:
+    This node serves as the central "brain" (FSM/PLC) of the robotic system, 
+    adhering strictly to an event-driven and signal-interlock architecture.
+    It does not process complex navigation algorithms or vision matrices; instead, 
+    it orchestrates the mission by exchanging Boolean (True/False) signals with 
+    sub-system nodes.
+
+System State Machine Flow Diagram:
+    [0] INIT (Hardware Self-Check)
+          | (All Sub-systems Online)
+          v
+    [1] SEARCH (Global Patrol for Target)
+          | (/detected_object == True)
+          v
+    [2] MOVE_TO_TARGET (Navigate to Target)
+          | (/move_feedback == True)
+          v
+    [3] GRASP (Manipulator Pick)
+          | (/manipulator_feedback == True)
+          v
+    [4] RETURN (Navigate back to Base)
+          | (/move_feedback == True)
+          v
+    [5] DROP (Manipulator Place)
+          | (/manipulator_feedback == True)
+          +---> Completed 3 cycles? ---> [Exit Mission]
+          | (Else)
+          +---> [Loop back to 1 SEARCH]
+
+Output Control Matrix:
+    | State | Moving | Arm_Active | Returning | Description
+    |-------|--------|------------|-----------|-------------------------
+    | SEARCH|  True  |   False    |   False   | Chassis explores, arm stowed.
+    | MOVE  |  True  |   False    |   False   | Chassis approaches target.
+    | GRASP |  False |   True     |   False   | Chassis halts, arm picks target.
+    | RETURN|  True  |   False    |   True    | Chassis returns to base.
+    | DROP  |  False |   True     |   True    | Chassis halts, arm places target.
+=======================================================================================
+"""
+
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Bool
@@ -5,97 +49,106 @@ from geometry_msgs.msg import PoseStamped
 import sys
 
 # Import custom message for error handling
-# Ensure 'my_robot_interfaces' is built and sourced in your workspace
+# Ensure 'my_robot_interfaces' is built and sourced in your colcon workspace
 from my_robot_interfaces.msg import ErrorStatus
 
-# === State Constants ===
-STATE_INIT = 0
-STATE_SEARCH = 1
-STATE_MOVE_TO_TARGET = 2
-STATE_GRASP = 3
-STATE_RETURN = 4
-STATE_DROP = 5
+# === State Machine Constants (Enumerations) ===
+STATE_INIT = 0           # Initialization and hardware verification
+STATE_SEARCH = 1         # Target searching phase
+STATE_MOVE_TO_TARGET = 2 # Approaching target phase
+STATE_GRASP = 3          # Object grasping phase
+STATE_RETURN = 4         # Returning to base phase
+STATE_DROP = 5           # Object placement phase
 
 class RobotControlNode(Node):
     def __init__(self):
         super().__init__('robot_control_node')
 
-        # === Internal Variables ===
+        # === Internal Variables Initialization ===
         self.current_state = STATE_INIT
-        self.cycle_count = 0  # Counter for completed tasks (n)
-        self.max_cycles = 3   # Stop after 3 cycles
+        self.cycle_count = 0  # Counter for completed pick-and-place cycles (n)
+        self.max_cycles = 3   # Terminate mission after 3 successful cycles
 
+        # Hardware readiness dictionary for startup interlock
         self.hardware_ready = {'camera': False, 'nav': False, 'arm': False}
+        self.latest_object_pose = None # Cache for the latest target 6D pose
 
-        self.latest_object_pose = None
+        # === Action Publishers ===
+        # Note: Commands are published ONLY on state transitions, not at high frequency.
+        self.pub_moving = self.create_publisher(Bool, '/status/moving', 10)         # Controls chassis movement
+        self.pub_arm = self.create_publisher(Bool, '/status/arm_active', 10)        # Controls manipulator activation
+        self.pub_return = self.create_publisher(Bool, '/status/returning', 10)      # Indicates homing/placement mode
 
-
-        # === Publishers ===
-        # Publishing status flags only on state transitions
-        # 'latched' behavior is often emulated by QoS, but here we simply publish once per event.
-        self.pub_moving = self.create_publisher(Bool, '/status/moving', 10)
-        self.pub_arm = self.create_publisher(Bool, '/status/arm_active', 10)
-        self.pub_return = self.create_publisher(Bool, '/status/returning', 10)
-
-
-        # === Subscribers ===
-        # 1. Object Detection (Triggers Search -> Move)
+        # === Sensor / Feedback Subscribers ===
+        # 1. Vision Node Feedback (Triggers: Search -> Move)
         self.sub_detect = self.create_subscription(
             Bool, '/detected_object', self.detect_callback, 10)
-
-        # Latest object pose (not used for state transitions but used for manipulation and navigation)
+            
+        # Receive the latest 6D pose (Logged for data integrity, not used for FSM logic)
         self.sub_object_pose = self.create_subscription(
             PoseStamped, '/object_pose', self.object_pose_callback,10)
 
-        # 2. Movement Feedback (Triggers Move -> Grasp AND Return -> Drop)
+        # 2. Navigation Node Feedback (Triggers: Move -> Grasp AND Return -> Drop)
         self.sub_move_fb = self.create_subscription(
             Bool, '/move_feedback', self.move_feedback_callback, 10)
-        # 3. Manipulator Feedback (Triggers Grasp -> Return AND Drop -> Search)
+            
+        # 3. Manipulator Node Feedback (Triggers: Grasp -> Return AND Drop -> Search)
         self.sub_manip_fb = self.create_subscription(
             Bool, '/manipulator_feedback', self.manip_feedback_callback, 10)
-        # 4. Error Status Monitoring
+            
+        # 4. Global Error Monitoring (E-Stop Trigger)
         self.sub_error = self.create_subscription(
             ErrorStatus, '/status_error', self.error_callback, 10)
+            
         self.get_logger().info(f'Node initialized. State: INIT. Cycle: {self.cycle_count}')
-        # 5. Hardware Readiness Check Timer (Polls every 1 second)
+        
+        # 5. Hardware Readiness Polling Timer (1Hz frequency)
         self.init_timer = self.create_timer(1.0, self.check_hardware_readiness)
 
     def check_hardware_readiness(self):
         """
-        Periodically checks if all hardware nodes are online.
-        Only transitions to SEARCH state when everyone is ready.
+        Startup self-check sequence.
+        Monitors the ROS graph for required topic publishers to ensure sub-systems are online.
+        Transitions to the SEARCH state only when Camera, Navigation, and Manipulator nodes are ready.
         """
+        # Cancel timer to save computational resources if initialization is complete
         if self.current_state != STATE_INIT:
             self.init_timer.cancel()
             return
-        # 1. /detected_object Publisher indicates Camera Node is online
+            
+        # 1. Verify Camera Node
         if not self.hardware_ready['camera']:
             if self.count_publishers('/detected_object') > 0:
                 self.hardware_ready['camera'] = True
                 self.get_logger().info('[Check] Camera Node: ONLINE ✅')
-        # 2. /move_feedback Publisher indicates Navigation Node is online
+                
+        # 2. Verify Navigation Node
         if not self.hardware_ready['nav']:
             if self.count_publishers('/move_feedback') > 0:
                 self.hardware_ready['nav'] = True
                 self.get_logger().info('[Check] Navigation Node: ONLINE ✅')
-        # 3. /manipulator_feedback Publisher indicates Manipulator Node is online
+                
+        # 3. Verify Manipulator Node
         if not self.hardware_ready['arm']:
             if self.count_publishers('/manipulator_feedback') > 0:
                 self.hardware_ready['arm'] = True
                 self.get_logger().info('[Check] Manipulator Node: ONLINE ✅')
-        # If all hardware is ready, transition to SEARCH state
+                
+        # Transition to SEARCH state once all hardware interlocks are cleared
         if all(self.hardware_ready.values()):
             self.get_logger().info('='*40)
             self.get_logger().info('>>> ALL SYSTEMS GO! Starting Mission... <<<')
             self.get_logger().info('='*40)
             self.current_state = STATE_SEARCH
+            
+            # Initial command: Engage chassis, stow arm, standard exploration mode
             self.publish_state_flags(moving=True, arm=False, returning=False)
-            self.init_timer.cancel()
+            self.init_timer.cancel() # Destroy timer post-initialization
 
     def publish_state_flags(self, moving: bool, arm: bool, returning: bool):
         """
-        Helper function to publish all status flags at once.
-        This is called only when a state transition occurs.
+        Unified status flag publisher.
+        Encapsulates message construction and ensures atomic publication during state transitions.
         """
         msg_moving = Bool()
         msg_moving.data = moving
@@ -113,34 +166,35 @@ class RobotControlNode(Node):
 
     def error_callback(self, msg):
         """
-        Callback for /status_error.
-        Terminates the program if error_state is True.
+        Global Emergency Stop (E-Stop) handler.
+        Listens to the /status_error topic and forcibly terminates the node process upon severe faults.
         """
-        # Accessing fields using snake_case (standard ROS 2 convention)
         if msg.error_state:
             self.get_logger().fatal(f'CRITICAL ERROR RECEIVED. Error Number: {msg.error_number}')
-            self.get_logger().fatal('Terminating Node due to error...')
-            # Clean exit
-            raise SystemExit
+            self.get_logger().fatal('Terminating Node due to hardware fault...')
+            raise SystemExit # Triggers a clean shutdown in the main execution block
 
     def detect_callback(self, msg):
         """
-        Callback for /detected_object.
-        Transition: Search (1) -> Move (2)
+        Camera vision feedback handler.
+        Logic: Triggers when the system is actively searching and vision detects a valid target.
+        Transition: SEARCH (1) -> MOVE_TO_TARGET (2)
         """
         if not msg.data:
             return
 
+        # Interlock to prevent false triggers during grasping or returning phases
         if self.current_state == STATE_SEARCH:
             self.get_logger().info('Event: Object Detected -> Switching to MOVE state')
             self.current_state = STATE_MOVE_TO_TARGET
             
-            # Logic: Moving=True, Arm=False, Return=False
+            # Command update: Chassis approaches target, arm remains stowed
             self.publish_state_flags(moving=True, arm=False, returning=False)
 
     def object_pose_callback(self, msg):
         """
-        Stores the latest detected object pose.
+        Target pose cache handler.
+        Continuously updates the 3D coordinates for potential downstream data logging or telemetry.
         """
         self.latest_object_pose = msg
         self.get_logger().debug(
@@ -150,64 +204,60 @@ class RobotControlNode(Node):
             f"z={msg.pose.position.z:.2f}"
         )
 
-
     def move_feedback_callback(self, msg):
         """
-        Callback for /move_feedback.
-        Handles two transitions:
-        1. Move (2) -> Grasp (3)
-        2. Return (4) -> Drop (5)
+        Navigation arrival feedback handler.
+        Evaluates current state to determine the appropriate post-navigation action (Grasp or Drop).
         """
         if not msg.data:
             return
 
-        # Transition 1: Move -> Grasp
+        # Scenario 1: Arrived at the target object location
         if self.current_state == STATE_MOVE_TO_TARGET:
             self.get_logger().info('Event: Arrived at Target -> Switching to GRASP state')
             self.current_state = STATE_GRASP
             
-            # Logic: Moving=False, Arm=True, Return=False
+            # Command update: Halt chassis, activate arm for picking
             self.publish_state_flags(moving=False, arm=True, returning=False)
 
-        # Transition 2: Return -> Drop
+        # Scenario 2: Arrived back at the home base
         elif self.current_state == STATE_RETURN:
             self.get_logger().info('Event: Returned to Base -> Switching to DROP state')
             self.current_state = STATE_DROP
             
-            # Logic: Moving=False, Arm=True, Return=True
+            # Command update: Halt chassis, activate arm with 'returning' flag to indicate placement
             self.publish_state_flags(moving=False, arm=True, returning=True)
 
     def manip_feedback_callback(self, msg):
         """
-        Callback for /manipulator_feedback.
-        Handles two transitions:
-        1. Grasp (3) -> Return (4)
-        2. Drop (5) -> Search (1) [Increments Counter]
+        Manipulator action completion feedback handler.
+        Evaluates current state to determine the next system-level action after arm operation.
         """
         if not msg.data:
             return
 
-        # Transition 1: Grasp -> Return
+        # Scenario 1: Object successfully grasped
         if self.current_state == STATE_GRASP:
             self.get_logger().info('Event: Object Grasped -> Switching to RETURN state')
             self.current_state = STATE_RETURN
             
-            # Logic: Moving=True, Arm=False, Return=True
+            # Command update: Engage chassis, stow arm, set homing flag
             self.publish_state_flags(moving=True, arm=False, returning=True)
 
-        # Transition 2: Drop -> Search (Loop or End)
+        # Scenario 2: Object successfully dropped/placed
         elif self.current_state == STATE_DROP:
             self.cycle_count += 1
             self.get_logger().info(f'Event: Object Dropped. Cycle count: {self.cycle_count}')
 
+            # Evaluate mission termination criteria
             if self.cycle_count >= self.max_cycles:
                 self.get_logger().info('Task Completed (n=3). Shutting down node.')
-                raise SystemExit
+                raise SystemExit # Clean exit upon successful mission completion
             else:
                 self.get_logger().info('-> Restarting cycle: Switching to SEARCH state')
                 self.current_state = STATE_SEARCH
                 
-                # Logic: Moving=True, Arm=False, Return=False
+                # Reset flags for a new exploration cycle
                 self.publish_state_flags(moving=True, arm=False, returning=False)
 
 def main(args=None):
@@ -217,10 +267,10 @@ def main(args=None):
     try:
         rclpy.spin(node)
     except SystemExit:
-        # Handles the intentional exit from counting or error
+        # Handles intentional termination (mission complete or E-Stop)
         rclpy.shutdown()
     except KeyboardInterrupt:
-        # Handles Ctrl+C
+        # Handles user-initiated Ctrl+C
         pass
 
 if __name__ == '__main__':
