@@ -1,170 +1,120 @@
+# README
 
-### README.md 
-
-```markdown
-# Robot Control System
-
-A modular ROS 2 Jazzy package implementing a finite state machine (FSM) for a "Search-Grasp-Transport-Drop" robotic task. This system integrates vision (simulated), manipulator control, navigation logic, and coordinate transformations.
-
-## ⚠️ Important Implementation Note
-
-**Please read this before running the nodes.**
-
-This package contains **pseudocode** and simulation placeholders to demonstrate the architectural logic. You are expected to implement the hardware interfaces:
-
-1.  **Camera Node (`camera_node.py`)**:
-    * Replace the simulated `is_target_found = True` logic in `camera_logic()` with actual Computer Vision code (e.g., OpenCV, YOLO).
-2.  **Manipulator Node (`manipulator_node.py`)**:
-    * Replace the `time.sleep()` calls in `move_arm_to_pose()` and `set_gripper()` with actual hardware driver commands (e.g., MoveIt! API or serial commands).
-
----
+This project demonstrates an integrated ROS 2 solution for autonomous mobile manipulation. By decoupling perception, navigation, and state logic, the system achieves a robust search-and-sort capability with high reliability, utilizing modern computer vision and semantic spatial memory to minimize task execution time.
 
 ## 1. System Architecture
 
-### Node Descriptions
+The system is built as a set of decoupled microservices that communicate via an event-driven signal architecture.
 
-Based on the `setup.py` configuration, the package consists of the following nodes:
-
-| Node Entry Point | Source File | Functionality |
+| Node (Entry Point) | Runtime Name | Responsibility |
 | :--- | :--- | :--- |
-| **`fsm_node`** | `robot_fsm.py` | **Central Controller.** Manages the robot's state (Search, Move, Grasp, Return, Drop) and coordinates sub-systems. |
-| **`camera_node`** | `camera_node.py` | **Perception.** Simulates object detection, broadcasts detection flags, and publishes the object's TF frame (`/base_link` → `/object`). |
-| **`manipulator_node`** | `manipulator_node.py` | **Manipulation.** Controls the robotic arm. Listens to TF transforms to calculate grasp poses relative to the arm base. |
-| **`nav_node`** | `nav_node.py` | **Navigation.** Handles chassis movement requests from the FSM and reports arrival. |
-| **`tf_sim_node`** | `tf_sim_node.py` | **Simulation Environment.** Publishes the static and dynamic TF tree (`map` → `odom` → `base_link` → sensors) for testing without real hardware. |
+| `robot_fsm` | `robot_control_node` | **The Brain.** Manages the FSM, hardware self-check, and task synchronization. |
+| `camera_node` | `camera_node` | **The Eyes.** YOLOv8 inference, 3D coordinate calculation, and grasp verification. |
+| `manipulator_node` | `manipulator_node` | **The Arm.** Executes IK-based pick and place. Uses vision feedback for verification. |
+| `nav_node` | `nav_node` | **The Legs.** Interfaces with Nav2. Handles random exploration and precision approach. |
+| `tf_sim_node` | `tf_sim_node` | **The Stage.** Publishes the TF tree (`map` → `odom` → `base_link` → `camera_link`). |
 
----
+## 2. Finite State Machine (FSM) Flow
 
-## 2. Finite State Machine (FSM)
-
-The core logic is driven by a 5-stage loop. The cycle repeats **3 times** before the program terminates automatically.
+The mission follows a strict event-driven sequence. The robot repeats this cycle **3 times** before automatic shutdown.
 
 ### State Transitions
 
-| ID | State | Description | Transition Trigger (Topic) | Next State |
-| :--- | :--- | :--- | :--- | :--- |
-| **1** | **SEARCH** | Robot searches for the target. <br>*(Flags: Moving=True, Arm=False)* | `/detected_object` → `True` | **MOVE** |
-| **2** | **MOVE** | Robot moves towards the target. <br>*(Flags: Moving=True, Target=True)* | `/move_feedback` → `True` | **GRASP** |
-| **3** | **GRASP** | Robot grabs the object. <br>*(Flags: Arm=True, Moving=False)* | `/manipulator_feedback` → `True` | **RETURN** |
-| **4** | **RETURN** | Robot carries object to drop zone. <br>*(Flags: Moving=True, Return=True)* | `/move_feedback` → `True` | **DROP** |
-| **5** | **DROP** | Robot releases the object. <br>*(Flags: Arm=True, Return=True)* | `/manipulator_feedback` → `True` | **SEARCH** |
+* **INIT**: FSM polls for the presence of Camera, Nav, and Arm node publishers.
+* **SEARCH**: Nav node performs random exploration while Vision node looks for a matching Object-Box pair.
+* **MOVE_TO_OBJ**: Once a pair is found, Nav node navigates to the locked object coordinates.
+* **GRASP**: Manipulator picks the object. It confirms success only if the Vision node reports the object has disappeared (`/vision_grasp_status`).
+* **MOVE_TO_BOX**: Nav node navigates to the previously memorized box coordinates.
+* **DROP**: Manipulator places the object. Upon completion, a `/status/reset_vision` signal is sent to clear all node caches for the next cycle.
 
-### Logic Diagram
+## 3. Communication API (Topic Map)
 
-```mermaid
-graph TD
-    SEARCH[1: SEARCH] -->|Object Detected| MOVE[2: MOVE TO TARGET]
-    MOVE -->|Arrived at Target| GRASP[3: GRASP]
-    GRASP -->|Grasp Complete| RETURN[4: RETURN]
-    RETURN -->|Arrived at Drop Zone| DROP[5: DROP]
-    DROP -->|Drop Complete| SEARCH
-    
-    style SEARCH fill:#f9f,stroke:#333
-    style GRASP fill:#bbf,stroke:#333
-    style DROP fill:#bbf,stroke:#333
+### Control Signals (FSM Outbound)
 
-```
+| Topic Name | Type | Description |
+| :--- | :--- | :--- |
+| `/status/moving` | `std_msgs/Bool` | Enables/Disables Navigation movements. |
+| `/status/going_to_box`| `std_msgs/Bool` | Toggles destination (False: Object, True: Box). |
+| `/status/arm_active` | `std_msgs/Bool` | Triggers the physical Arm sequence. |
+| `/status/reset_vision`| `std_msgs/Bool` | Resets memory in Vision/Nav nodes for a new cycle. |
 
----
+### Feedback & Perception (Inbound)
 
-## 3. Communication Interfaces
+| Topic Name | Type | Description |
+| :--- | :--- | :--- |
+| `/detected_pair` | `std_msgs/Bool` | True when Vision finds a matching color pair. |
+| `/target_object_pose` | `geometry_msgs/PoseStamped` | Locked global coordinates of the target object. |
+| `/target_box_pose` | `geometry_msgs/PoseStamped` | Locked global coordinates of the target box. |
+| `/vision_grasp_status`| `std_msgs/Bool` | True if the object is no longer seen (Grasp Success). |
+| `/move_feedback` | `std_msgs/Bool` | Navigation arrival confirmation. |
+| `/manipulator_feedback`| `std_msgs/Bool` | Arm sequence completion confirmation. |
 
-This system requires the `my_robot_interfaces` package.
-
-### Custom Messages
-
-* **`ErrorStatus.msg`**: `bool error_state`, `int32 error_number`
-* **`ObjectTarget.msg`**: `bool observe_state`, `string object_name`,  `string color`
-
-### Topic Map
-
-| Topic Name | Type | Publisher | Subscriber | Description |
-| --- | --- | --- | --- | --- |
-| `/detected_object` | `Bool` | Camera | FSM | Triggers "Search" → "Move" |
-| `/object_detail` | `ObjectTarget` | Camera | Manipulator | Provides target name for TF lookup |
-| `/move_feedback` | `Bool` | Nav Node | FSM | Signals chassis arrival |
-| `/manipulator_feedback` | `Bool` | Manipulator | FSM | Signals arm action completion |
-| `/status/moving` | `Bool` | FSM | Nav Node | Enable/Disable movement |
-| `/status/arm_active` | `Bool` | FSM | Manipulator | Enable/Disable arm control |
-| `/status/returning` | `Bool` | FSM | Nav Node | Indicates "Return" phase |
-| `/status_error` | `ErrorStatus` | External | FSM | **Emergency Stop** |
-
----
-
-## 4. Usage Guide
+## 4. Installation & Setup
 
 ### Prerequisites
 
-1. **ROS 2 Jazzy** installed.
-2. **`my_robot_interfaces`** package built and sourced.
+* **ROS 2 Jazzy** (Ubuntu 24.04 recommended)
+* **Python libraries**: `ultralytics` (YOLOv8), `numpy`, `opencv-python`
+* **Custom Interfaces**: Build `my_robot_interfaces` first.
 
-### Build
+### Build Instructions
 
 ```bash
+# Clone and build
 cd ~/ros2_ws
-colcon build --packages-select robot_control_system
+colcon build --packages-select my_robot_interfaces robot_control_system
 source install/setup.bash
-
 ```
 
-### Run (Multi-Terminal Setup)
+## 5. Launching & Testing
 
-Open 5 separate terminals to visualize the workflow:
-
-**Terminal 1: TF Simulator (Environment)**
+### Launching the System
 
 ```bash
-ros2 run robot_control_system tf_sim_node
-
+ros2 launch robot_control_system automated_mission.launch.py
 ```
 
-**Terminal 2: FSM (Controller)**
+### Manual Verification (Simulation)
+
+If hardware is not available, you can simulate signals via terminal to verify the FSM transitions:
 
 ```bash
-ros2 run robot_control_system fsm_node
+# 1. Simulate Object Found (Triggers MOVE_TO_OBJ)
+ros2 topic pub /detected_pair std_msgs/msg/Bool "{data: true}" --once
 
+# 2. Simulate Navigation Arrival (Triggers GRASP or DROP)
+ros2 topic pub /move_feedback std_msgs/msg/Bool "{data: true}" --once
+
+# 3. Simulate Grasp Verification (Confirms object is picked)
+ros2 topic pub /vision_grasp_status std_msgs/msg/Bool "{data: true}" --once
+ros2 topic pub /manipulator_feedback std_msgs/msg/Bool "{data: true}" --once
 ```
 
-**Terminal 3: Camera (Perception)**
+## 6. Project Structure
 
-```bash
-ros2 run robot_control_system camera_node
-
+```text
+.
+├── my_robot_interfaces          # Custom ROS 2 interfaces
+│   ├── msg/
+│   │   └── ErrorStatus.msg      # Emergency/System error definitions
+│   └── CMakeLists.txt
+└── robot_control_system         # Main logic package
+    ├── robot_control_system/    # Python source files
+    │   ├── best.pt              # YOLOv8 Weights (Trained)
+    │   ├── camera_node.py       # Perception & Verification
+    │   ├── robot_fsm.py         # State machine control (Brain)
+    │   ├── nav_node.py          # Nav2 interface & memory
+    │   ├── manipulator_node.py  # Arm execution logic
+    │   └── tf_sim_node.py       # TF Tree Simulator
+    ├── launch/
+    │   └── automated_mission.launch.py
+    ├── setup.py
+    └── package.xml
 ```
 
-**Terminal 4: Manipulator (Action)**
+## 7. Troubleshooting
 
-```bash
-ros2 run robot_control_system manipulator_node
-
-```
-
-**Terminal 5: Navigation (Simulation)**
-
-```bash
-ros2 run robot_control_system nav_node
-
-```
-
-### Manual Testing
-
-If you don't have the `nav_node` logic implemented, you can manually trigger transitions:
-
-* **Trigger Movement Complete:**
-```bash
-ros2 topic pub --once /move_feedback std_msgs/msg/Bool "{data: true}"
-
-```
-
-
-* **Trigger Error (Shutdown):**
-```bash
-ros2 topic pub --once /status_error my_robot_interfaces/msg/ErrorStatus "{error_state: true, error_number: 500}"
-
-```
-
-
-
-```
-
-```
+* **TF Lookup Failures**: Ensure `tf_sim_node` is running and `base_link` to `camera_link` transforms are broadcasted.
+* **YOLO Latency**: If the frame rate is low on CPU, consider using the `yolov8n.pt` model for faster inference.
+* **Grasp Verification**: If the arm gets stuck after the pick action, verify the camera node is publishing correctly to `/vision_grasp_status`.
+* **Nav2 Initialization**: Ensure the robot is localized in the map before the FSM enters the `SEARCH` state.
