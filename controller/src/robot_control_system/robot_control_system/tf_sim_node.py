@@ -3,6 +3,8 @@ from rclpy.node import Node
 from geometry_msgs.msg import TransformStamped
 from tf2_ros import TransformBroadcaster, StaticTransformBroadcaster
 import math
+import time
+
 
 class TFSimulatorNode(Node):
     def __init__(self):
@@ -11,9 +13,10 @@ class TFSimulatorNode(Node):
         # === 1. Broadcasters ===
         # Static Broadcaster: For fixed joints (Sensor mounting points)
         self.static_broadcaster = StaticTransformBroadcaster(self)
-        
         # Dynamic Broadcaster: For moving frames (Map -> Odom -> Base)
         self.dynamic_broadcaster = TransformBroadcaster(self)
+        # [MODIFIED] Track start time to simulate robot movement over time
+        # self.start_time = time.time()
 
         # === 2. Publish Static Transforms (Once at startup) ===
         self.publish_static_transforms()
@@ -83,6 +86,13 @@ class TFSimulatorNode(Node):
         # Simulating the robot is stationary at (0,0,0). 
         # You can add sine waves to x/y here to simulate movement if needed.
         t_odom_base = self.create_transform('odom', 'base_link', 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+
+        # [MODIFIED] 2. Odom -> Base_link (Simulate robot moving forward at 0.1 m/s)
+        # This allows you to test if your Vision node properly converts relative coordinates 
+        # to global coordinates while the robot is moving during the SEARCH state.
+        # elapsed_time = time.time() - self.start_time
+        # simulated_x_position = 0.1 * elapsed_time
+        # t_odom_base = self.create_transform('odom', 'base_link', simulated_x_position, 0.0, 0.0, 0.0, 0.0, 0.0)
 
         # Send
         self.dynamic_broadcaster.sendTransform([t_map_odom, t_odom_base])
