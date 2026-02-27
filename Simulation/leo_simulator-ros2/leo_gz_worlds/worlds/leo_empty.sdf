@@ -1,0 +1,179 @@
+<?xml version="1.0"?>
+<sdf version="1.8">
+  <world name="leo_empty">
+    <physics name="1ms" type="ignored">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+      <!--<dart>
+        <collision_detector>bullet</collision_detector>
+      </dart>-->
+    </physics>
+
+    <plugin
+      filename="gz-sim-physics-system"
+      name="gz::sim::systems::Physics">
+    </plugin>
+    <plugin
+      filename="gz-sim-sensors-system"
+      name="gz::sim::systems::Sensors">
+    </plugin>
+    <plugin
+      filename="gz-sim-scene-broadcaster-system"
+      name="gz::sim::systems::SceneBroadcaster">
+    </plugin>
+    <plugin
+      filename="gz-sim-user-commands-system"
+      name="gz::sim::systems::UserCommands">
+    </plugin>
+    <plugin filename="gz-sim-imu-system"
+      name="gz::sim::systems::Imu">
+    </plugin>
+
+    <light name="sun" type="directional">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+          <surface>
+            <friction>
+              <ode>
+                <mu>50</mu>
+              </ode>
+              <bullet>
+                <friction>1</friction>
+                <friction2>1</friction2>
+                <rolling_friction>0.1</rolling_friction>
+              </bullet>
+            </friction>
+          </surface>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+            <specular>0.8 0.8 0.8 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 障碍物1: 立方体盒子 -->
+    <!-- <model name="obstacle_box_1">
+      <pose>3 0 0.5 0 0 0</pose>
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>1 1 1</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>1 1 1</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.8 0.2 0.2 1</ambient>
+            <diffuse>0.8 0.2 0.2 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model> -->
+
+      <!-- 7米长墙体 -->
+    <model name="wall_4m_1">
+      <include>
+        <uri>model://wall_4m</uri>
+        <pose>3.5 2 0.5 0 0 0</pose>  <!-- X=5m, Y=0, Z=0.5m (高度的一半) -->
+      </include>
+    </model>
+
+    <!-- 7米长墙体 -->
+    <model name="wall_4m_2">
+      <include>
+        <uri>model://wall_4m</uri>
+        <pose>3.5 -2 0.5 0 0 0</pose>  <!-- X=5m, Y=0, Z=0.5m (高度的一半) -->
+      </include>
+    </model>
+
+       <!-- 4米长墙体 -->
+    <model name="wall_3m_1">
+      <include>
+        <uri>model://wall_3m</uri>
+        <pose>0 0 0.5 0 0 1.57079632 </pose>  <!-- X=0, Y=5m, Z=0.5m -->
+      </include>
+    </model>
+
+        <!-- 4米长墙体 -->
+    <model name="wall_3m_2">
+      <include>
+        <uri>model://wall_3m</uri>
+        <pose>7 0 0.5 0 0 1.57079632</pose>  <!-- X=0, Y=5m, Z=0.5m -->
+      </include>
+    </model>
+   
+   <model name="basket_1">
+      <include>
+        <uri>model://basket</uri>
+        <pose>4 0 0.115 1.57079632 0 0</pose>  <!-- Z=0.115是高度的一半，底部贴地 -->
+      </include>
+    </model>
+
+    <!-- 紫色篓子 -->
+    <model name="basket_purple_1">
+      <include>
+        <uri>model://basket_purple</uri>
+        <pose>0.2 0.3 0.015 0 0 0</pose>
+      </include>
+    </model>
+
+    <!-- 黄色篓子 -->
+    <model name="basket_yellow_1">
+      <include>
+        <uri>model://basket_yellow</uri>
+        <pose>0.2 0 0.015 0 0 0</pose>
+      </include>
+    </model>
+
+    <!-- 红色篓子 -->
+    <model name="basket_red_1">
+      <include>
+        <uri>model://basket_red</uri>
+        <pose>0.2 -0.3 0.015 0 0 0</pose>
+      </include>
+    </model>
+    
+
+  
+  
+  </world>
+</sdf>
