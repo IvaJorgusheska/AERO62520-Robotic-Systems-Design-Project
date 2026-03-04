@@ -22,9 +22,8 @@ class VisionNode(Node):
         # ----------------------------
         # Publishers
         # ----------------------------
-        # self.pub_detected = self.create_publisher(Bool, '/detected_object', 10)
         self.pub_detected = self.create_publisher(ObjectTarget, '/detected_object', 10)
-        self.pub_pose = self.create_publisher(PoseStamped, '/object_pose', 10)
+        self.pub_state = self.create_publisher(Bool, '/detection_state', 10)
 
 
         # ----------------------------
@@ -87,70 +86,77 @@ class VisionNode(Node):
         # Run YOLO
         # ----------------------------
         results = self.model(color_image, conf=0.5, verbose=False)
+        state_msg = Bool()
 
         if len(results[0].boxes) == 0:
+            state_msg.data = False
+            self.pub_state.publish(state_msg)
+            return
+
+        state_msg.data = True
+        self.pub_state.publish(state_msg)
+
+
+
+        # ----------------------------
+        # Detected Objects List
+        # ----------------------------        
+
+        boxes = results[0].boxes
+
+        # Sort by confidence (highest first)
+        confidences = boxes.conf.cpu().numpy()
+        sorted_indices = np.argsort(-confidences)
+
+        top_k = min(3, len(sorted_indices))
+
+
+        for i in range(top_k):
+
+            box = boxes[sorted_indices[i]]
+
+            cls_id = int(box.cls[0])
+            object_name_full = self.class_names[cls_id]
+
+            # Determine type
+            if "box" in object_name_full:
+                name = "box"
+            else:
+                name = "object"
+
+            # Extract color
+            if "red" in object_name_full:
+                color = "red"
+            elif "yellow" in object_name_full:
+                color = "yellow"
+            elif "purple" in object_name_full:
+                color = "purple"
+            else:
+                color = "unknown"
+
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+            u = int((x1 + x2) / 2)
+            v = int((y1 + y2) / 2)
+
+            depth = depth_frame.get_distance(u, v)
+
+            if depth <= 0.0:
+                continue
+
+            X = (u - self.cx) / self.fx * depth
+            Y = (v - self.cy) / self.fy * depth
+            Z = depth
+
             msg = ObjectTarget()
-            msg.observe_state = False
-            msg.object_name = ""
-            msg.color = ""
+            msg.name = name
+            msg.color = color
+            msg.x = float(X)
+            msg.y = float(Y)
+            msg.z = float(Z)
+
             self.pub_detected.publish(msg)
-            return
 
-
-        # ----------------------------
-        # Single-object logic (first box)
-        # ----------------------------
-        box = results[0].boxes[0]
-        cls_id = int(box.cls[0])
-        object_name = self.class_names[cls_id]
-
-        if "red" in object_name:
-            color = "red"
-        elif "yellow" in object_name:
-            color = "yellow"
-        elif "purple" in object_name:
-            color = "purple"
-        else:
-            color = "unknown"
-        x1, y1, x2, y2 = map(int, box.xyxy[0])
-
-        u = int((x1 + x2) / 2)
-        v = int((y1 + y2) / 2)
-
-        depth = depth_frame.get_distance(u, v)
-
-        if depth <= 0.0:
-            return
-
-        # ----------------------------
-        # Camera-frame 3D coordinates
-        # ----------------------------
-        X = (u - self.cx) / self.fx * depth
-        Y = (v - self.cy) / self.fy * depth
-        Z = depth
-
-        # ----------------------------
-        # Publish detection flag
-        # ----------------------------
-        msg = ObjectTarget()
-        msg.observe_state = True
-        msg.object_name = object_name
-        msg.color = color
-        self.pub_detected.publish(msg)
-
-        # ----------------------------
-        # Publish pose (camera frame)
-        # ----------------------------
-        pose = PoseStamped()
-        pose.header.stamp = self.get_clock().now().to_msg()
-        pose.header.frame_id = 'camera_link'
-
-        pose.pose.position.x = float(X)
-        pose.pose.position.y = float(Y)
-        pose.pose.position.z = float(Z)
-        pose.pose.orientation.w = 1.0
-
-        self.pub_pose.publish(pose)
+     
 
     def destroy_node(self):
         self.pipeline.stop()
