@@ -1,124 +1,152 @@
 """
 ================================================================================
-COMPONENT: Navigation Controller Node (ActionClient Actuator)
+COMPONENT: Navigation Controller Node (Real Robot Version)
 ================================================================================
 Design Philosophy:
-    Acts strictly as a "muscle" for the Master FSM. Merges robust ActionClient 
-    implementation for real robots with a simplified "Dumb Actuator" architecture.
+    Acts as a smart actuator. Manages its own exploration loop and targeted 
+    navigation, strictly using the topics defined by the Master FSM.
     
-Interface Contract:
-    - Subscribes: /goal_pose (PoseStamped) -> The target destination from FSM.
-    - Publishes: /nav/goal_reached (Bool)  -> True when Nav2 completes the task.
+Interface Contract (Strictly adhering to Master FSM):
+    - Sub: /nav/cmd_explore (Bool) -> True=Explore Loop, False=Stop/Brake
+    - Sub: /nav/goal_point (PointStamped) -> Target destination from FSM
+    - Pub: /nav/goal_reached (Bool) -> True when GOTO task completes
 ================================================================================
 """
 
+import math
+import random
 import rclpy
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.action import ActionClient
-
 from std_msgs.msg import Bool
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PointStamped, PoseStamped
 from nav2_msgs.action import NavigateToPose
 from action_msgs.msg import GoalStatus
+from tf2_ros import Buffer, TransformListener, TransformException
 
-# ==============================================================================
-# 1. NAVIGATION CONTROLLER NODE
-# ==============================================================================
 class NavControllerNode(Node):
     def __init__(self):
-        # Enforce real system time for physical robot deployment
-        super().__init__('nav_controller_node', 
-                         parameter_overrides=[Parameter('use_sim_time', Parameter.Type.BOOL, False)])
+        super().__init__('nav_controller_node', parameter_overrides=[Parameter('use_sim_time', Parameter.Type.BOOL, False)])
         
-        # --- Initialize Nav2 Action Client ---
-        self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
-        self.get_logger().info('Waiting for Nav2 Action Server to become active (Real Robot Mode)...')
-        self.nav_client.wait_for_server()
-        self.get_logger().info('Nav2 is active! Navigation actuator ready.')
+        self.explore_bounds = [-1.5, 1.5] 
+        self.standoff_dist = 0.25         
+        
+        self.nav_mode = "IDLE"  # "IDLE", "EXPLORE", "GOTO"
+        self.goal_handle = None 
+        
+        self.last_target_x = 999.0 
+        self.last_target_y = 999.0 
 
-        # --- Publishers & Subscribers ---
-        # Listen to FSM for destination coordinates
-        self.sub_goal = self.create_subscription(
-            PoseStamped, 
-            '/goal_pose', 
-            self.goal_callback, 
-            10
-        )
-        
-        # Feedback to FSM upon successful arrival
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+
+        self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
+        self.nav_client.wait_for_server()
+        self.get_logger().info('Nav2 is active! Ready for FSM commands.')
+
+        self.sub_cmd_explore = self.create_subscription(Bool, '/nav/cmd_explore', self.explore_cb, 10)
+        self.sub_goal_point  = self.create_subscription(PointStamped, '/nav/goal_point', self.point_cb, 10)
         self.pub_fb = self.create_publisher(Bool, '/nav/goal_reached', 10)
 
-        # --- Internal Execution State ---
-        self.is_navigating = False      
-        self.current_goal_handle = None 
+    # ==========================================================================
+    # INPUT INTERFACES
+    # ==========================================================================
+    def explore_cb(self, msg: Bool):
+        """Toggles exploration loop or forces an immediate stop."""
+        if msg.data and self.nav_mode != "EXPLORE":
+            self.nav_mode = "EXPLORE"
+            self.dispatch_goal()  # Call without args -> Triggers random generation
+            
+        elif not msg.data and self.nav_mode == "EXPLORE":
+            self.nav_mode = "IDLE"
+            if self.goal_handle: self.goal_handle.cancel_goal_async()
+
+    def point_cb(self, msg: PointStamped):
+        """Calculates Standoff Pose and dispatches targeted navigation."""
+        tx, ty = msg.point.x, msg.point.y
+        
+        # Anti-spam filter (20cm tolerance)
+        if math.hypot(tx - self.last_target_x, ty - self.last_target_y) < 0.2:
+            return 
+            
+        self.nav_mode = "GOTO"
+        self.last_target_x, self.last_target_y = tx, ty
+        
+        try:
+            t = self.tf_buffer.lookup_transform('map', 'base_link', rclpy.time.Time())
+            rx, ry = t.transform.translation.x, t.transform.translation.y
+            yaw = math.atan2(ty - ry, tx - rx)
+            dist = math.hypot(tx - rx, ty - ry)
+            
+            # Synthesize standoff coordinates
+            gx = tx - self.standoff_dist * math.cos(yaw) if dist > self.standoff_dist else rx
+            gy = ty - self.standoff_dist * math.sin(yaw) if dist > self.standoff_dist else ry
+            
+            self.dispatch_goal(gx, gy, yaw) # Call with args -> Triggers precise GOTO
+            
+        except TransformException as ex:
+            self.get_logger().warn(f"TF Error: {ex}")
 
     # ==========================================================================
-    # CORE: GOAL EXECUTION & PREEMPTION
+    # CORE: ALL-IN-ONE DISPATCHER
     # ==========================================================================
-    def goal_callback(self, msg: PoseStamped):
+    def dispatch_goal(self, x=None, y=None, yaw=None):
         """
-        Triggered when FSM commands a new destination.
-        Automatically preempts any currently active Nav2 task.
+        Cancels active goals, generates random coordinates if none provided, 
+        and dispatches the new PoseStamped to Nav2.
         """
-        self.get_logger().info(f"FSM commanded new goal: x={msg.pose.position.x:.2f}, y={msg.pose.position.y:.2f}")
-        
-        # Preempt current task if actively navigating
-        if self.is_navigating and self.current_goal_handle:
-            self.get_logger().info('Preempting current navigation task...')
-            self.current_goal_handle.cancel_goal_async()
+        # 1. Auto-cancel previous task
+        if self.goal_handle:
+            self.goal_handle.cancel_goal_async()
+            self.goal_handle = None
 
-        # Reset timestamp to 0 to ensure immediate processing in real TF trees
-        msg.header.stamp.sec = 0
-        msg.header.stamp.nanosec = 0
+        # 2. Auto-generate random coordinates if running in EXPLORE mode
+        if x is None or y is None or yaw is None:
+            x = random.uniform(self.explore_bounds[0], self.explore_bounds[1])
+            y = random.uniform(self.explore_bounds[0], self.explore_bounds[1])
+            yaw = random.uniform(-math.pi, math.pi)
+
+        # 3. Assemble and dispatch
+        pose = PoseStamped()
+        pose.header.frame_id = 'map'
+        pose.header.stamp.sec = 0  # Bypass TF buffer delays on real robot
         
-        # Package and dispatch the action goal
-        goal_msg = NavigateToPose.Goal()
-        goal_msg.pose = msg
+        pose.pose.position.x, pose.pose.position.y = float(x), float(y)
+        pose.pose.orientation.z = math.sin(yaw / 2.0)
+        pose.pose.orientation.w = math.cos(yaw / 2.0)
         
-        self.is_navigating = True
-        send_goal_future = self.nav_client.send_goal_async(goal_msg)
-        send_goal_future.add_done_callback(self.goal_response_callback)
+        self.nav_client.send_goal_async(NavigateToPose.Goal(pose=pose)).add_done_callback(self.goal_response_cb)
 
     # ==========================================================================
-    # CORE: ACTION CLIENT ASYNC CALLBACK CHAIN
+    # ASYNC FEEDBACK CHAIN
     # ==========================================================================
-    def goal_response_callback(self, future):
-        """Verifies if the Nav2 server accepted the commanded goal."""
-        goal_handle = future.result()
-        if not goal_handle.accepted:
-            self.get_logger().warn('Goal rejected by Nav2 server (Path blocked or invalid).')
-            self.is_navigating = False
+    def goal_response_cb(self, future):
+        self.goal_handle = future.result()
+        if not self.goal_handle.accepted:
+            # Auto-retry if an exploration point was invalid
+            if self.nav_mode == "EXPLORE": self.dispatch_goal()
             return
+            
+        self.goal_handle.get_result_async().add_done_callback(self.result_cb)
 
-        self.get_logger().info('Goal accepted. Chassis is moving...')
-        self.current_goal_handle = goal_handle
-        
-        # Await final navigation result
-        get_result_future = goal_handle.get_result_async()
-        get_result_future.add_done_callback(self.get_result_callback)
-
-    def get_result_callback(self, future):
-        """Processes the final result (Success, Cancelled, or Failed) and notifies FSM."""
+    def result_cb(self, future):
         status = future.result().status
-        self.is_navigating = False
-        self.current_goal_handle = None
+        self.goal_handle = None
 
         if status == GoalStatus.STATUS_SUCCEEDED:
-            self.get_logger().info('Arrival Successful! Notifying FSM.')
-            msg = Bool()
-            msg.data = True
-            self.pub_fb.publish(msg)
-            
-        elif status == GoalStatus.STATUS_CANCELED:
-            self.get_logger().info('Navigation task was canceled (Likely preempted by new FSM goal).')
-            
-        else:
-            self.get_logger().error(f'Navigation failed with status code: {status}')
-            # On failure, no signal is sent. FSM will wait or eventually timeout.
+            if self.nav_mode == "GOTO":
+                self.pub_fb.publish(Bool(data=True))
+                self.nav_mode = "IDLE" 
+            elif self.nav_mode == "EXPLORE":
+                self.dispatch_goal() # Auto-loop exploration
+                
+        # Retry on failure to prevent robot freezing
+        elif status != GoalStatus.STATUS_CANCELED and self.nav_mode == "EXPLORE":
+            self.dispatch_goal()
 
-def main(args=None):
-    rclpy.init(args=args)
+def main():
+    rclpy.init()
     node = NavControllerNode()
     try:
         rclpy.spin(node)
@@ -127,6 +155,7 @@ def main(args=None):
     finally:
         node.destroy_node()
         rclpy.shutdown()
+
 
 if __name__ == '__main__':
     main()
