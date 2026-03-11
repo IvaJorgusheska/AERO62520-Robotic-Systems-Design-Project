@@ -1,123 +1,123 @@
 # Robot Control System
 
-This project implements an end-to-end ROS 2 solution for autonomous “search–pick–place” with decoupled microservices. The **Main Controller** governs a strict finite‑state machine (FSM), while **Vision**, **Navigation**, and **Manipulator** act as focused actuators. Semantic memory is maintained per color, enabling the robot to pair objects with their matching boxes and complete **3 full cycles** before automatic shutdown.
-
-## 1 System Architecture
-
-All components are decoupled and communicate via ROS 2 topics and the Nav2 action server. The FSM manages logic (Control Flow), while actuators handle the physical execution and coordinate synthesis (Data Flow).
-
-| Node                 | Runtime Name               | Responsibility                                                                                                                                                                                           |
-| :------------------- | :------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **robot_fsm** | `robot_control_node`       | **Brain & FSM.** Maintains global `map` coordinates. Publishes boolean triggers. Dynamically resolves `camera_link` coordinates for the arm at the exact moment of action to eliminate movement errors. |
-| **camera_node** | `vision_node`              | **Eyes.** RealSense frames → YOLOv8 detections (top‑k). Publishes color & type (`object`/`box`) with 3D coordinates in `camera_link`. Publishes a detection health flag (`/detection_state`).            |
-| **nav_node** | `nav_controller_node`      | **Smart Legs.** Consumes `/nav/goal_point` (`PointStamped`). Automatically calculates the required Yaw to face the target and stops at a safe **0.25m standoff distance** to allow arm operation.        |
-| **manipulator_node** | `manipulator_control_node` | **Arm & Gripper.** Consumes `/arm/grasp_pose` and `/arm/grasp_status`. Executes open-loop physical movements on the MyCobot 280.                                                                         |
-
-> **TF Requirement:** The controller dynamically transforms `camera_link` points to the `map` frame (for memory) and back to `camera_link` (for manipulation). A valid TF tree (`map` -> `odom` -> `base_link` -> `camera_link`) is strictly required.
+This project implements an end-to-end ROS 2 solution for autonomous **search–pick–place** with decoupled microservices. The **Main Controller** governs a strict finite‑state machine (FSM), while **Vision**, **Navigation**, and **Manipulator** act as focused actuators. Semantic memory is maintained per color, enabling the robot to pair objects with their matching boxes and complete **3 full cycles** before automatic shutdown.
 
 
+## 1. System Architecture
 
-## 2 Finite State Machine (FSM)
+All components are decoupled and communicate via ROS 2 topics and the Nav2 action server. The FSM governs **control flow**, while actuators handle **data flow** (estimation, pathing, manipulation).
 
-The robot repeats the full mission **three times** and then shuts down. Feedback from the open-loop arm is simulated via internal timers and verified robustly via vision timestamps.
+| Node                  | Runtime Name               | Responsibility                                                                                                                                                                                                                                 |
+| :-------------------- | :------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **robot\_fsm**        | `robot_control_node`       | **Brain & FSM.** Maintains per‑color semantic memory. Persists `map` coordinates for navigation and always refreshes `camera_link` coordinates for manipulation **right at action time** to minimize motion error. Publishes boolean triggers. |
+| **camera\_node**      | `vision_node`              | **Eyes.** RealSense frames → YOLOv8 detections (top‑k). Publishes `{color, type ∈ {object, box}, x, y, z}` in `camera_link`.                      |
+| **nav\_node**         | `nav_controller_node`      | **Smart Legs.** Consumes `/nav/goal_point` (`PointStamped` in `map`). Computes yaw to face the target and stops at a safe **0.25 m standoff** for arm operation.                                                                               |
+| **manipulator\_node** | `manipulator_control_node` | **Arm & Gripper.** Consumes `/arm/grasp_pose` and `/arm/grasp_status`. Drives MyCobot 280 with open‑loop moves.                                                                                                                                |
+
+**TF Requirement:** A valid TF tree `map → odom → base_link → camera_link` is required. The controller transforms detections from `camera_link` to `map` for memory (navigation), while manipulation uses the latest `camera_link` pose at the moment of action.
+
+
+
+## 2. Finite State Machine (FSM)
+
+The robot repeats the full mission **three times** and then shuts down. **No wall‑clock timers are used** for GRASP/DROP verification. Instead, success is inferred when the **active color’s `object`** receives **no new updates** across **N consecutive vision messages** (miss thresholds; defaults below).
 
 ### State Flow
 
 1.  **INIT**
-    * **Logic:** Hardware graph probe. Checks if Vision, Nav, and Arm publishers/subscribers are alive.
-    * **Transition:** When all required nodes are online → **SEARCH**.
+    *   **Logic:** Probe the hardware graph. Checks that Vision publishes, and Nav/Arm subscribe as required.
+    *   **Transition:** When all required endpoints are alive → **SEARCH**.
 
 2.  **SEARCH**
-    * **Logic:** Trigger Nav node to explore randomly (bounds: [-1.5, 1.5]). Build **color → {object, box}** memory by transforming real-time camera detections to `map`.
-    * **Transition:** When a color has **both** `object` and `box` in memory → set `active_target_color` → **MOVE_TO_OBJECT**.
+    *   **Logic:** Toggle exploration (`/nav/cmd_explore = True`). Build **color → {object, box}** memory:
+        *   **`cam_pose`** (in `camera_link`) is **always** stored per detection.
+        *   **`map_pose`** is stored **opportunistically** when TF is available.
+    *   **Transition:** When a color has **both** `object.map_pose` **and** `box.map_pose` → set `active_target_color` → **MOVE\_TO\_OBJECT**.
 
-3.  **MOVE_TO_OBJECT**
-    * **Logic:** Pass the target object's `map` point to Nav. Nav auto-calculates orientation and standoff distance.
-    * **Transition:** On `/nav/goal_reached == True` → **GRASP**.
+3.  **MOVE\_TO\_OBJECT**
+    *   **Logic:** Publish the **object’s `map` point**. Nav computes yaw and standoff autonomously.
+    *   **Transition:** On `/nav/goal_reached == True` → **GRASP**.
 
-4.  **GRASP**
-    * **Logic:** FSM looks up the latest TF to transform the object's `map` pose back to a highly accurate `camera_link` pose. Send to Arm. FSM waits **5.0 seconds** for physical execution.
-    * **Transition:** After 5s, check vision memory timestamp.
-        * If the object was seen in the exact location < 1.5s ago → Grasp failed, retry.
-        * If not seen recently → Grasp success → **MOVE_TO_BOX**.
+4.  **GRASP** *(event‑driven, no timers)*
+    *   **Logic:** Immediately dispatch the **latest** `camera_link` pose of the **object** to the arm and **reset the miss baseline**.
+    *   **Success Criterion:** If the active color’s `object` receives **no new vision updates** for **`grasp_miss_threshold`** consecutive messages → **success** → **MOVE\_TO\_BOX**.
+    *   **Otherwise:** Keep waiting (no timeouts).
 
-5.  **MOVE_TO_BOX**
-    * **Logic:** Pass the target box's `map` point to Nav.
-    * **Transition:** On `/nav/goal_reached == True` → **DROP**.
+5.  **MOVE\_TO\_BOX**
+    *   **Logic:** Publish the **box’s `map` point** for navigation.
+    *   **Transition:** On `/nav/goal_reached == True` → **DROP**.
 
-6.  **DROP**
-    * **Logic:** Send `camera_link`-relative box pose to Arm. FSM waits **3.0 seconds** for physical execution.
-    * **Transition:**
-        * If **cycles == 3** → shutdown.
-        * Else: Clear memory for the completed color, reset `active_target_color = "NONE"` → **SEARCH**.
-
-
+6.  **DROP** *(event‑driven, no timers)*
+    *   **Logic:** Dispatch the **latest** `camera_link` pose of the **box** to the arm and **reset the miss baseline**.
+    *   **Success Criterion:** If the active color’s `object` continues to receive **no new updates** for **`drop_miss_threshold`** consecutive messages → **success**:
+        *   Increment cycle count.
+        *   If `< 3`: clear memory of the completed color, reset `active_target_color = "NONE"` → **SEARCH**.
+        *   Else: **Shutdown**.
 
 ### Output Control Matrix
 
-The FSM drives the entire system using this highly optimized 4-variable boolean matrix:
+The FSM drives the actuators with a compact 4‑variable boolean matrix:
 
-| STATE                | NAV_EXPLORE | NAV_GOTO | ARM_GRASP | ARM_DROP |
-| :------------------- | :---------- | :------- | :-------- | :------- |
-| **[0] INIT** | False       | False    | False     | False    |
-| **[1] SEARCH** | True        | False    | False     | False    |
-| **[2] MOVE_OBJECT** | False       | True     | False     | False    |
-| **[3] GRASP** | False       | False    | True      | False    |
-| **[4] MOVE_BOX** | False       | True     | False     | False    |
-| **[5] DROP** | False       | False    | False     | True     |
+| STATE                 | NAV\_EXPLORE | NAV\_GOTO | ARM\_GRASP | ARM\_DROP |
+| :-------------------- | :----------- | :-------- | :--------- | :-------- |
+| **\[0] INIT**         | False        | False     | False      | False     |
+| **\[1] SEARCH**       | True         | False     | False      | False     |
+| **\[2] MOVE\_OBJECT** | False        | True      | False      | False     |
+| **\[3] GRASP**        | False        | False     | True       | False     |
+| **\[4] MOVE\_BOX**    | False        | True      | False      | False     |
+| **\[5] DROP**         | False        | False     | False      | True      |
 
+> **Notes:**
+>
+> *   `NAV_EXPLORE` is realized by publishing `/nav/cmd_explore`.
+> *   `NAV_GOTO` is realized by continuously publishing `/nav/goal_point` (timestamp refreshed each publish).
+> *   `ARM_GRASP/ARM_DROP` are realized by publishing `/arm/grasp_pose` and `/arm/grasp_status` with appropriate semantics.
 
-## 3 Communication API (Topics & Interfaces)
+***
+
+## 3. Communication API (Topics & Interfaces)
 
 ### Controller → Actuators (Outbound)
 
-* **`/nav/goal_point`** — `geometry_msgs/PointStamped`
-    Target `x, y` point in **`map`** frame. Nav node uses this to synthesize yaw and the 0.25m offset.
-* **`/nav/cmd_explore`** — `std_msgs/Bool`
-    Triggers infinite random waypoint exploration in Nav node (`True`=Explore, `False`=Brake/Stop).
-* **`/arm/grasp_pose`** — `my_robot_interfaces/GripperPose`
-    Target **`camera_link`**-relative pose for the Manipulator (`x, y, z, roll, pitch, yaw`).
-* **`/arm/grasp_status`** — `my_robot_interfaces/GripperState`
+*   **`/nav/goal_point`** — `geometry_msgs/PointStamped`  
+    Target point in **`map`**. The controller **refreshes the message timestamp** on each publish. Nav synthesizes yaw and applies a 0.25 m standoff.
+
+*   **`/nav/cmd_explore`** — `std_msgs/Bool`  
+    Exploration trigger (`True` = explore, `False` = stop).
+
+*   **`/arm/grasp_pose`** — `my_robot_interfaces/CamArmPose`  
+    Target **`camera_link`** pose for the manipulator (`x, y, z`). Used for both grasp and drop; the intent is indicated by `/arm/grasp_status`.
+
+*   **`/arm/grasp_status`** — `my_robot_interfaces/GripperState`  
     Gripper command (`grip: True` to close/pick, `False` to open/place).
 
 ### Actuators/Vision → Controller (Inbound)
 
-* **`/detected_object`** — `my_robot_interfaces/ObjectTarget`
-    YOLO detection published by Vision in **camera coordinates** with `{name, color, x, y, z}`.
-* **`/nav/goal_reached`** — `std_msgs/Bool`
-    **True** when Nav2 reports successful arrival at the `GOTO` target.
+*   **`/detected_object`** — `my_robot_interfaces/ObjectTarget`  
+    YOLO detection in **`camera_link`** with `{name ∈ {object, box}, color, x, y, z}`.
 
-*(Note: The Vision node also publishes `/detection_state` (`std_msgs/Bool`), but the FSM uses the precise timestamps of `/detected_object` to perform robust closed-loop grasp verification instead).*
-
-### Action Server (Internal to Navigation)
-
-* **`Maps_to_pose`** — `nav2_msgs/action/NavigateToPose`
-    Used by the `nav_controller_node` to execute both random exploration points and synthesized FSM targets.
+*   **`/nav/goal_reached`** — `std_msgs/Bool`  
+    `True` when Nav reports successful arrival.
 
 
-## 4 Prerequisites
 
-* **ROS 2 Jazzy** (Ubuntu 24.04 recommended)
-* **Nav2** stack (start your usual bringup so `Maps_to_pose` is active)
-* **Python libraries**:
-    * `ultralytics` (YOLOv8)
-    * `numpy`, `opencv-python`
-    * `pyrealsense2` (Intel RealSense SDK)
-    * `pymycobot` (MyCobot 280)
-* **Custom Interfaces** (`my_robot_interfaces` must be built first):
-    * `ObjectTarget.msg`
-    * `GripperState.msg`
-    * `GripperPose.msg`
-* **Model file:** Place **`best.pt`** inside the installed share directory of `robot_control_system`.
+### Nav2 Action (used inside `nav_controller_node`)
 
-## 5 Build Instructions
+*   **`NavigateToPose`** — `nav2_msgs/action/NavigateToPose`  
+    Used by the nav node to execute random exploration and FSM targets.
 
-```bash
-# Build custom interfaces first
-cd ~/ros2_ws
-colcon build --packages-select my_robot_interfaces
-source install/setup.bash
 
-# Then build the main system
-colcon build --packages-select robot_control_system
-source install/setup.bash
+## 4. Prerequisites
+
+*   **ROS 2 Jazzy** (Ubuntu 24.04 recommended)
+*   **Nav2** stack (bringup must be running)
+*   **Python libraries**:
+    *   `ultralytics` (YOLOv8)
+    *   `numpy`, `opencv-python`
+    *   `pyrealsense2` (Intel RealSense SDK)
+    *   `pymycobot` (MyCobot 280)
+*   **Custom Interfaces** (`my_robot_interfaces` must be built first):
+    *   `ObjectTarget.msg`
+    *   `GripperState.msg`
+    *   `CamArmPose.msg`
+*   **Model file:** Place `best.pt` in the installed share directory of `robot_control_system`.
