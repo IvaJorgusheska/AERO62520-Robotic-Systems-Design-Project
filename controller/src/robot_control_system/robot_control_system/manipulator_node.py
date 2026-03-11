@@ -1,6 +1,6 @@
 import rclpy
 from rclpy.node import Node
-from my_robot_interfaces.msg import GripperState, GripperPose
+from my_robot_interfaces.msg import GripperState, GripperPose, CamArmPose
 from pymycobot import MyCobot280,PI_PORT,PI_BAUD
 import time
 
@@ -21,7 +21,7 @@ class ManipulatorControlNode(Node):
             qos_profile=1)
 
         self.gripper_pose_subscriber = self.create_subscription(
-            msg_type=GripperPose,
+            msg_type=CamArmPose,
             topic='/arm/grasp_pose',
             callback=self.gripper_pose_subscriber_callback,
             qos_profile=1)
