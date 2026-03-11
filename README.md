@@ -31,7 +31,7 @@ Global and local planning for:
 - returning to the start position.
 
 ### 4. Manipulation
-Inverse kinematics computed on the NUC;  
+Inverse kinematics computed on the manipulator's Pi;  
 Joint and gripper execution handled on the myCobot Pi using the `pymycobot` API.
 
 ### 5. Base Control (Leo Rover Pi)
