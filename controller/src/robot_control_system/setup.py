@@ -27,7 +27,7 @@ setup(
             "camera_node = robot_control_system.camera_node:main",
             "manipulator_node = robot_control_system.manipulator_node:main",
             "nav_node = robot_control_system.nav_node:main",
-            "tf_sim_node = robot_control_system.tf_sim_node:main",
+            #"tf_sim_node = robot_control_system.tf_sim_node:main",
         ],
     },
 )
