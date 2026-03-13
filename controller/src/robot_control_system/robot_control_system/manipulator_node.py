@@ -45,7 +45,7 @@ class ManipulatorControlNode(Node):
         if not msg.grip:
             arm.set_gripper_state(1,100)
 
-    def gripper_pose_subscriber_callback(self, msg: GripperPose):
+    def gripper_pose_subscriber_callback(self, msg: CamArmPose):
         self.get_logger().info(
         f"Received GripperPose: x={msg.x}, y={msg.y}, z={msg.z}, "
         # f"roll={msg.roll}, pitch={msg.pitch}, yaw={msg.yaw}"
