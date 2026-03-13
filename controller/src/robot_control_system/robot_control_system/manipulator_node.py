@@ -6,10 +6,10 @@ import time
 
 arm=MyCobot280(PI_PORT,PI_BAUD)
 
-init_coords = arm.get_coords()
+init_coords = [53.3, -63.6, 418.8, -92.37, -0.35, -90.24]
 arm.send_coords(init_coords,20,1)
 
-print (init_coords)
+# print (init_coords)
 
 class ManipulatorControlNode(Node):
     def __init__(self):
@@ -26,6 +26,18 @@ class ManipulatorControlNode(Node):
             callback=self.gripper_pose_subscriber_callback,
             qos_profile=1)
         
+        self.gripper_state_subscriber = self.create_subscription(
+            msg_type=GripperState,
+            topic='/arm/initial_position',
+            callback=self.gripper_initial_pose_subscriber_callback,
+            qos_profile=1)
+        
+    def gripper_initial_pose_subscriber_callback(self, msg: GripperState):
+        self.get_logger().info(f"Received GripperState: grip={msg.grip}")
+        if msg.grip:
+            arm.send_coords(init_coords,20,1)
+
+        
     def gripper_state_subscriber_callback(self, msg: GripperState):
         self.get_logger().info(f"Received GripperState: grip={msg.grip}")
         if msg.grip:
@@ -36,9 +48,22 @@ class ManipulatorControlNode(Node):
     def gripper_pose_subscriber_callback(self, msg: GripperPose):
         self.get_logger().info(
         f"Received GripperPose: x={msg.x}, y={msg.y}, z={msg.z}, "
-        f"roll={msg.roll}, pitch={msg.pitch}, yaw={msg.yaw}"
+        # f"roll={msg.roll}, pitch={msg.pitch}, yaw={msg.yaw}"
         )
-        arm.send_coords([msg.x,msg.y,msg.z,msg.roll,msg.pitch,msg.yaw],20,1)
+        x_arm = 0.1736*msg.y+ 0.9848*msg.z + 0.0946
+        y_arm = -msg.x + 0.03
+        z_arm = 0.9848*msg.y - 0.1736*msg.z - 0.0678
+
+        x_arm = x_arm * 1000
+        y_arm = (y_arm * 1000) - 12
+        #z_arm = z_arm * 1000
+        z_arm = 118.0
+        roll = -170.4
+        pitch = -4.65
+        yaw = -45.22
+
+        #need to hard code the angles
+        arm.send_coords([x_arm,y_arm,z_arm,msg.roll,msg.pitch,msg.yaw],20,1)
 
 def main(args=None):
     """
