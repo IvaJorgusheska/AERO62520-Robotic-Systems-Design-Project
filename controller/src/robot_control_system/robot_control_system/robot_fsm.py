@@ -102,6 +102,9 @@ class RobotControlNode(Node):
         self.pub_nav_explore = self.create_publisher(Bool, '/nav/cmd_explore', 10)
         self.pub_arm_pose    = self.create_publisher(CamArmPose, '/arm/grasp_pose', 10)
         self.pub_arm_grip    = self.create_publisher(GripperState, '/arm/grasp_status', 10)
+        self.pub_arm_init    = self.create_publisher(GripperState, '/arm/initial_position', 10)
+
+
 
         # Subscribers
         self.sub_vision_target = self.create_subscription(ObjectTarget, '/detected_object', self.vision_target_callback, 10)
@@ -280,14 +283,62 @@ class RobotControlNode(Node):
     # ==========================================================================
     # LOGIC: COMMAND DISPATCH
     # ==========================================================================
+    # def trigger_arm_action(self, is_grasp: bool):
+    #     """
+    #     Dispatch camera_link coordinates to the arm (position only).
+    #     NOTE: The CamArmPose message here carries position only. If your arm requires orientation,
+    #           extend the message or set defaults in the arm node accordingly.
+    #     """
+    #     target_type = 'object' if is_grasp else 'box'
+
+    #     if target_type == 'object':
+    #         grip_msg = GripperState()
+    #         grip_msg.grip = True   #open - True
+    #         self.pub_arm_grip.publish(grip_msg)
+    #         #wait 5 sec
+
+        
+    #     color_dict = self.map_hash.get(self.active_target_color, {})
+    #     entry = color_dict.get(target_type)
+    #     if entry and entry.get('cam_pose'):
+    #         local_pos = entry['cam_pose']
+    #         pose_msg = CamArmPose()
+    #         pose_msg.x = float(local_pos['x'])
+    #         pose_msg.y = float(local_pos['y'])
+    #         pose_msg.z = float(local_pos['z'])
+    #         self.get_logger().info(
+    #             f"Dispatching camera_link pose to Arm: "
+    #             f"x={pose_msg.x:.3f}, y={pose_msg.y:.3f}, z={pose_msg.z:.3f}"
+    #         )
+    #         self.pub_arm_pose.publish(pose_msg)
+
+    #     # Dispatch Gripper State
+    #     if target_type == 'object':
+    #         grip_msg = GripperState()
+    #         grip_msg.grip = False   #open - True
+    #         self.pub_arm_grip.publish(grip_msg)
+
+    #         #wait
+    #         init_pose = True
+    #         self.pub_arm_init.publish(True)
+    #     else:
+    #         grip_msg = GripperState()
+    #         grip_msg.grip = True
+    #         self.pub_arm_grip.publish(grip_msg)
+
+    #         #wait 5 sec
+    #         init_pose = True
+    #         self.pub_arm_init.publish(True)
+
     def trigger_arm_action(self, is_grasp: bool):
-        """
-        Dispatch camera_link coordinates to the arm (position only).
-        NOTE: The CamArmPose message here carries position only. If your arm requires orientation,
-              extend the message or set defaults in the arm node accordingly.
-        """
         target_type = 'object' if is_grasp else 'box'
 
+        if target_type == 'object':
+            grip_msg = GripperState()
+            grip_msg.grip = True  # open gripper
+            self.pub_arm_grip.publish(grip_msg)
+
+        # Publish arm pose immediately
         color_dict = self.map_hash.get(self.active_target_color, {})
         entry = color_dict.get(target_type)
         if entry and entry.get('cam_pose'):
@@ -302,10 +353,26 @@ class RobotControlNode(Node):
             )
             self.pub_arm_pose.publish(pose_msg)
 
+        # Schedule non-blocking wait before final gripper/init dispatch
+        self.get_logger().info("Scheduling follow-up gripper/init after 5 seconds")
+        self.create_timer(10.0, lambda: self._after_gripper_wait(is_grasp), once=True)
+    
+    def _after_gripper_wait(self, is_grasp: bool):
+        """Called after non-blocking wait to continue arm action."""
+        target_type = 'object' if is_grasp else 'box'
+
         # Dispatch Gripper State
         grip_msg = GripperState()
-        grip_msg.grip = is_grasp
+        if target_type == 'object':
+            grip_msg.grip = False  # close gripper
+        else:
+            grip_msg.grip = True   # leave open or default
         self.pub_arm_grip.publish(grip_msg)
+
+        # Send init pose
+        self.pub_arm_init.publish(True)
+
+        
 
     # ==========================================================================
     # LOGIC: NAVIGATION FEEDBACK
