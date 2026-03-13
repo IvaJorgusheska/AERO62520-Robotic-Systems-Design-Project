@@ -1,6 +1,6 @@
 import rclpy
 from rclpy.node import Node
-from my_robot_interfaces.msg import GripperState, GripperPose, CamArmPose
+from my_robot_interfaces.msg import GripperState, CamArmPose
 from pymycobot import MyCobot280,PI_PORT,PI_BAUD
 import time
 
@@ -63,7 +63,7 @@ class ManipulatorControlNode(Node):
         yaw = -45.22
 
         #need to hard code the angles
-        arm.send_coords([x_arm,y_arm,z_arm,msg.roll,msg.pitch,msg.yaw],20,1)
+        arm.send_coords([x_arm,y_arm,z_arm,roll,pitch,yaw],20,1)
 
 def main(args=None):
     """
