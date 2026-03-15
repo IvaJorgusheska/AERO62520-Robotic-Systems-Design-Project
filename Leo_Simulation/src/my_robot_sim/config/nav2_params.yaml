@@ -1,0 +1,292 @@
+# -------------------------------------------------------------------------
+# 1. Behavior Tree Navigator (BT Navigator)
+# Responsible for top-level logic coordinating the planner, controller, and recovery actions
+# -------------------------------------------------------------------------
+bt_navigator:
+  ros__parameters:
+    use_sim_time: True             # [Required] Whether to use the virtual time published by Gazebo
+    global_frame: map              # The highest-level global static frame of the entire navigation system
+    robot_base_frame: base_footprint    # The frame representing the center of the robot body
+    odom_topic: /odom              # Topic name to subscribe to system odometry
+    # Default Behavior Tree XML file loaded. This default file contains complete replanning, obstacle avoidance, and stuck-recovery logic
+    default_bt_xml_filename: "navigate_to_pose_w_replanning_and_recovery.xml"
+
+# -------------------------------------------------------------------------
+# 2. Local Controller (Controller Server)
+# Responsible for receiving the global path, performing local obstacle avoidance, and outputting specific cmd_vel velocity commands
+# -------------------------------------------------------------------------
+controller_server:
+  ros__parameters:
+    use_sim_time: True
+    controller_frequency: 20.0     # The computation frequency of the control loop; 20Hz means 20 velocity commands are issued per second
+    transform_tolerance: 0.5       # Allows 0.5 seconds of coordinate transform delay to prevent 140Hz crashes
+    
+    # Velocity commands below the following thresholds will be forced to 0, preventing motors from trembling in place due to tiny noise
+    min_x_velocity_threshold: 0.001
+    min_y_velocity_threshold: 0.5  # Differential/skid-steer robots cannot move on the Y-axis; setting the threshold high directly ignores lateral noise
+    min_theta_velocity_threshold: 0.001
+    
+    # Declare the plugin names to load, to be used by specific configurations below
+    progress_checker_plugin: "progress_checker"
+    goal_checker_plugins: ["general_goal_checker"]
+    controller_plugins: ["FollowPath"]
+    
+    # --- Goal Checker ---
+    general_goal_checker:
+      plugin: "nav2_controller::SimpleGoalChecker"
+      xy_goal_tolerance: 0.25      # Allowed position error: considered reached if within 0.25 meters of the destination
+      yaw_goal_tolerance: 0.25     # Allowed angular error: considered reached if yaw angle error is within 0.25 radians (about 14 degrees)
+      stateful: True               # Whether to keep internal state (e.g., recording if the arrival condition was ever met)
+
+    # --- Navigation Progress Checker (Anti-stuck mechanism) ---
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      required_movement_radius: 0.5 # The minimum radius the robot is required to move (meters)
+      movement_time_allowance: 10.0 # Time allowance (seconds): if it doesn't move 0.5 meters within 10 seconds, the system judges the robot as stuck and triggers recovery actions
+    
+    # --- RPP Local Path Planning Algorithm (The brain issuing specific velocities) ---
+    FollowPath:
+      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
+      desired_linear_vel: 1.0           # Desired linear velocity
+      lookahead_dist: 0.6                # Look ahead at the path point 0.6 meters away to follow
+      min_lookahead_dist: 0.3
+      max_lookahead_dist: 0.9
+      lookahead_time: 1.5
+      transform_tolerance: 0.5
+      
+      # --- Core killer feature: Allow turning in place! ---
+      use_rotate_to_heading: false        # Allow turning in place to align with the heading!
+      rotate_to_heading_min_angle: 0.5   # When the path deviation exceeds 0.5 radians (about 30 degrees), stop and turn in place first, then move!
+      rotate_to_heading_angular_vel: 1.0 # Angular velocity for turning in place
+      
+      # --- Deceleration when approaching destination ---
+      use_velocity_scaled_lookahead_dist: false
+      min_approach_linear_velocity: 0.05
+      approach_velocity_scaling_dist: 0.6
+      
+      # --- Kinematic Limits ---
+      max_linear_accel: 1.0              # Smooth linear starting acceleration
+      max_angular_accel: 2.0             # Smooth angular acceleration
+      
+      max_robot_pose_search_dist: 10.0
+      use_interpolation: true
+
+# -------------------------------------------------------------------------
+# 3. Global Planner (Planner Server)
+# Responsible for calculating the optimal connected path from point A to point B on the macro map (like Google Maps)
+# -------------------------------------------------------------------------
+planner_server:
+  ros__parameters:
+    use_sim_time: True
+    planner_plugins: ["GridBased"]
+    
+    GridBased:
+      plugin: "nav2_navfn_planner::NavfnPlanner"
+      tolerance: 0.5               # Tolerance (meters): if the goal is inside an obstacle, allows finding the nearest free space within 0.5 meters of the goal as an alternative
+      use_astar: true              # True uses A* algorithm (focuses on efficiency); False uses Dijkstra algorithm (focuses on complete coverage)
+
+# -------------------------------------------------------------------------
+# 4. Local Costmap
+# The robot's "immediate" dynamic short-term memory map, mainly used for avoiding moving obstacles or unmapped temporary obstacles
+# -------------------------------------------------------------------------
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      transform_tolerance: 0.5   # Local map also adds transform tolerance
+      update_frequency: 5.0        # Frequency of internal computation and merging layers (5Hz)
+      publish_frequency: 2.0       # Frequency of sending to the ROS system (e.g., RViz) for display (2Hz)
+      global_frame: odom           # The reference frame of the local map (usually relies on odometry rather than the global static map)
+      robot_base_frame: base_footprint  # The center frame of the robot
+      use_sim_time: True
+      rolling_window: true         # Rolling window: True means the local map is always centered on the robot and moves with it
+      width: 3                     # The lateral width of the local map (meters)
+      height: 3                    # The longitudinal height of the local map (meters)
+      resolution: 0.05             # Map resolution, 0.05 meters/pixel
+      robot_radius: 0.25           # ★ EXTREMELY IMPORTANT: The physical outer radius of the robot, used to calculate the inflation area. Inside the radius is considered a lethal obstacle.
+      plugins: ["voxel_layer", "inflation_layer"] # Enabled map layers
+      
+      # --- Voxel Layer (used to project 2D/3D sensor data onto the map) ---
+      voxel_layer:
+        plugin: "nav2_costmap_2d::VoxelLayer"
+        enabled: True              # Enable voxel layer
+        publish_voxel_map: True    # Allow publishing 3D voxel grid for visual debugging
+        origin_z: 0.0              # Bottom height of the voxel grid
+        z_resolution: 0.05         # Resolution along the Z axis
+        z_voxels: 16               # Number of layers along the Z axis (16 * 0.05 = 0.8 meters high detection space)
+        max_obstacle_height: 2.0   # Obstacles taller than 2 meters will be ignored (because they won't be hit)
+        mark_threshold: 0          # Threshold of points to determine if an obstacle exists in a voxel
+        observation_sources: scan  # Data source name declaration
+        scan:
+          topic: /scan             # Subscribed Lidar data stream
+          min_obstacle_height: 0.15  # Extremely critical: Ignore false floor obstacles below 0.15 meters!
+          max_obstacle_height: 2.0 # Maximum cutoff height when processing Lidar data
+          clearing: True           # Allow beams to "clear" previously memorized false obstacles in an area when passing through empty space
+          marking: True            # Allow "marking" new obstacles where objects are hit
+          data_type: "LaserScan"   # Data type
+          
+      # --- Inflation Layer (makes obstacles fatter to prevent the robot from scraping edges) ---
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 3.0   # Cost scaling factor: smaller values mean the cost decreases slower at the outer edge of the inflation zone (wider buffer zone)
+        inflation_radius: 0.55     # Maximum inflation influence radius of an obstacle; areas beyond 0.55 meters are completely unaffected by this obstacle
+
+# -------------------------------------------------------------------------
+# 5. Global Costmap
+# The macro long-term memory map of the entire site, mainly used for A* to find the global path
+# -------------------------------------------------------------------------
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      transform_tolerance: 0.5   # Global map also adds transform tolerance
+      update_frequency: 1.0        # Global map is large, update frequency doesn't need to be too fast (1Hz is enough)
+      publish_frequency: 1.0       # Publish frequency (1Hz)
+      global_frame: map            # Reference frame locked to the highest-level map
+      robot_base_frame: base_footprint
+      use_sim_time: True
+      robot_radius: 0.25           # Global map also needs to know the robot radius for planning
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+      
+      # --- Static Layer (reads the underlying built map) ---
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: True # Enable QoS settings to ensure delayed map data can be received
+        subscribe_to_updates: True # ★ SLAM Mode Exclusive: Allows the layer to receive and fuse the latest locally explored map published by SLAM Toolbox in real-time
+        
+      # --- Obstacle Layer (overlays dynamic info) ---
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: True
+        observation_sources: scan
+        scan:
+          topic: /scan
+          min_obstacle_height: 0.15  # Similarly ignore the floor
+          max_obstacle_height: 2.0
+          clearing: True
+          marking: True
+          data_type: "LaserScan"
+          
+      # --- Inflation Layer ---
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.55
+
+# -------------------------------------------------------------------------
+# 6. Collision Monitor
+# Active Safety System (AEB), runs independently of the planner, forcibly cuts motor power when a collision is imminent
+# -------------------------------------------------------------------------
+collision_monitor:
+  ros__parameters:
+    use_sim_time: True
+    base_frame_id: "base_footprint"
+    odom_frame_id: "odom"
+    
+    # --- Velocity Command Interception Channel ---
+    # It acts as a "middleman" here: gets smooth velocity from the planner, forwards it as-is if there's no danger; outputs 0 velocity if there is danger.
+    cmd_vel_in_topic: "cmd_vel_smoothed" 
+    cmd_vel_out_topic: "cmd_vel"
+    
+    transform_tolerance: 0.5       # Allowed delay timeout for TF coordinate frame transforms (seconds)
+    source_timeout: 1.0            # If no lidar data is received for over 1 second, it is judged as a sensor failure and movement stops
+    
+    # Its judgment basis source: Lidar
+    observation_sources: ["scan"]
+    scan:
+      type: "scan"                 # Data source type
+      topic: "/scan"
+      
+    # --- Virtual Bumper Polygon (Stop Box) ---
+    polygons: ["stop_box"]
+    stop_box:
+      type: "polygon"
+      # Draw an absolute protection box with the robot center as the origin (X,Y coordinates in meters, sequentially: front-left, front-right, rear-right, rear-left)
+      points: "[[0.25, 0.25], [0.25, -0.25], [-0.25, -0.25], [-0.25, 0.25]]"
+      action_type: "stop"          # Action upon trigger condition: "stop" means as soon as a lidar point enters this polygon, the motors brake immediately
+      visualize: True              # Whether to publish this polygon so you can visualize it in RViz
+      polygon_pub_topic: "polygon_stop" # Visualization topic name
+      polygon_sub_topic: "polygon_sub"  # Fills in a backup parameter when it can't find static points, preventing errors
+
+# =========================================================================
+# 7. Behavior Server - Self-rescue actions when hitting a dead end (spin, backup)
+# =========================================================================
+behavior_server:
+  ros__parameters:
+    use_sim_time: True
+    costmap_topic: local_costmap/costmap_raw
+    footprint_topic: local_costmap/published_footprint
+    cycle_frequency: 10.0
+    behavior_plugins: ["spin", "backup", "drive_on_heading", "wait"]
+    spin:
+      plugin: "nav2_behaviors::Spin"
+    backup:
+      plugin: "nav2_behaviors::BackUp"
+    drive_on_heading:
+      plugin: "nav2_behaviors::DriveOnHeading"
+    wait:
+      plugin: "nav2_behaviors::Wait"
+
+# =========================================================================
+# 8. Smoother Server - Removes sharp corners from paths planned by A*
+# =========================================================================
+smoother_server:
+  ros__parameters:
+    use_sim_time: True
+    smoother_plugins: ["SimpleSmoother"]
+    SimpleSmoother:
+      plugin: "nav2_smoother::SimpleSmoother"
+      tolerance: 1.0e-10
+      max_its: 1000
+      do_refinement: True
+
+# =========================================================================
+# 9. Velocity Smoother - Makes accel/decel smoother, prevents wheel slip
+# =========================================================================
+velocity_smoother:
+  ros__parameters:
+    use_sim_time: True
+    smoothing_frequency: 20.0
+    scale_velocities: False
+    feedback: "OPEN_LOOP"
+    max_velocity: [0.26, 0.0, 1.0]
+    min_velocity: [-0.26, 0.0, -1.0]
+    max_accel: [2.5, 0.0, 3.2]
+    max_decel: [-2.5, 0.0, -3.2]
+    odom_topic: "odom"
+    odom_duration: 0.1
+    deadband_velocity: [0.0, 0.0, 0.0]
+    velocity_timeout: 1.0
+
+# =========================================================================
+# 10. Waypoint Follower - Run through multiple target points sequentially
+# =========================================================================
+waypoint_follower:
+  ros__parameters:
+    use_sim_time: True
+    loop_rate: 200
+    stop_on_failure: false
+    waypoint_task_executor_plugin: "wait_at_waypoint"
+    wait_at_waypoint:
+      plugin: "nav2_waypoint_follower::WaitAtWaypoint"
+      waypoint_pause_duration: 200
+
+# =========================================================================
+# 11. Docking Server - New mandatory launch node in Jazzy
+# =========================================================================
+docking_server:
+  ros__parameters:
+    use_sim_time: True
+    controller_frequency: 50.0
+    initial_perception_timeout: 5.0
+    wait_charge_timeout: 5.0
+    dock_approach_timeout: 30.0
+    undock_linear_tolerance: 0.05
+    undock_angular_tolerance: 0.1
+    max_retries: 3
+    base_frame: "base_footprint"
+    odom_frame: "odom"
+    dock_plugins: ["simple_dock"]
+    simple_dock:
+      plugin: "opennav_docking::SimpleChargingDock"
+      docking_threshold: 0.05
+      staging_x_offset: -0.5
+      use_external_detection_pose: true
