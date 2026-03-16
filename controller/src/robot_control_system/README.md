@@ -13,9 +13,9 @@ The Master Control Node acts as the "Brain" (control flow), while other modules 
 | Node | Role | Core Responsibility |
 | --- | --- | --- |
 | **`robot_control_node`** | **Brain** | Runs the core FSM, manages color-based semantic memory, and dispatches global/local coordinates to actuators. |
-| **`vision_node`** | **Eyes** | Processes camera frames (e.g., YOLOv8) and outputs 3D coordinates (in the `camera_link` frame) with color and type. |
-| **`nav_controller_node`** | **Legs** | Receives `map` coordinates from the Master, plans paths, and navigates the chassis to a safe standoff distance. |
-| **`manipulator_control_node`** | **Arm** | Receives grasp/place coordinates (in `camera_link`) and gripper control signals to execute physical movements. |
+| **`camera_node`** | **Eyes** | Processes camera frames (e.g., YOLOv8) and outputs 3D coordinates (in the `camera_link` frame) with color and type. |
+| **`nav_node`** | **Legs** | Receives `map` coordinates from the Master, plans paths, and navigates the chassis to a safe standoff distance. |
+| **`manipulator_node`** | **Arm** | Receives grasp/place coordinates (in `camera_link`) and gripper control signals to execute physical movements. |
 
 #### 1.2 Communication Interfaces (API)
 
@@ -71,6 +71,6 @@ The Master Node is driven by a high-frequency timer function (`execute_control_l
 | **`[0] INIT`** | `check_hardware_readiness()` | **Hardware Probe:** Verifies if the camera heartbeat is active and if Nav/Arm have active subscribers. | If all ready → `[1] SEARCH` |
 | **`[1] SEARCH`** | `execute_control_loop()`<br>`vision_target_callback()` | **Global Patrol:** Enables Nav exploration. Vision callback continually saves `map_pose`. The main loop prioritizes `paired` colors, and only targets `deferred` colors if all others are `solved`. | Found target → `[2] MOVE_TO_OBJECT` |
 | **`[2] MOVE_TO_OBJECT`** | `execute_control_loop()`<br>`move_feedback_callback()` | **Approach:** Publishes the target object's `map` coordinates to Navigation continuously. | Nav goal reached → `[3] GRASP` |
-| **`[3] GRASP`** | `trigger_arm_action()`<br>`_after_gripper_wait()`<br>`execute_control_loop()` | **Pick Sequence:** <br>1. Open gripper & send `cam_pose`.<br>2. Wait 10s (non-blocking).<br>3. Close gripper & reset arm.<br>**Verification:** If object disappears from vision for 5 frames → Success. <br>If still visible → Retry (max 5 times, then mark `deferred`). | Success → `[4] MOVE_TO_BOX`<br>Fail x5 → `[1] SEARCH` |
+| **`[3] GRASP`** | `trigger_arm_action()`<br>`_after_gripper_wait()`<br>`execute_control_loop()` | **Pick Sequence:** <br>1. Open gripper & send `cam_pose`.<br>2. Wait 10s (non-blocking).<br>3. Close gripper & reset arm.<br>**Verification:** <br>If object disappears from vision for 5 frames → Success. <br>If still visible → Retry (max 5 times, then mark `deferred`). | Success → `[4] MOVE_TO_BOX`<br>Fail x5 → `[1] SEARCH` |
 | **`[4] MOVE_TO_BOX`** | `execute_control_loop()`<br>`move_feedback_callback()` | **Approach:** Publishes the target box's `map` coordinates to Navigation continuously. | Nav goal reached → `[5] DROP` |
-| **`[5] DROP`** | `trigger_arm_action()`<br>`_after_gripper_wait()`<br>`_final_drop_cleanup()` | **Place Sequence:** <br>1. Send `cam_pose` & wait 10s.<br>2. Open gripper to drop & reset arm.<br>3. Wait 3s, then close gripper.<br>**Verification:** Disappears for 5 frames → Success. Mark `solved`, increment `cycle_count`. | Cycle < 3 → `[1] SEARCH`<br>Cycle = 3 → **Shutdown** |
+| **`[5] DROP`** | `trigger_arm_action()`<br>`_after_gripper_wait()`<br>`_final_drop_cleanup()` | **Place Sequence:** <br>1. Send `cam_pose` & wait 10s.<br>2. Open gripper to drop & reset arm.<br>3. Wait 3s, then close gripper.<br>**Verification:** <br>Disappears for 5 frames → Success. <br>Mark `solved`, increment `cycle_count`. | Cycle < 3 → `[1] SEARCH`<br>Cycle = 3 → **Shutdown** |
