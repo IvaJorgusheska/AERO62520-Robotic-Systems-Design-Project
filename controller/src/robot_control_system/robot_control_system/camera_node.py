@@ -159,6 +159,9 @@ class VisionNode(Node):
             if depth <= 0.0:
                 continue
 
+            if depth > 0.8:
+                continue
+
             X, Y, Z = self.pixel_to_3d(u, v, depth)
 
             msg = ObjectTarget()
