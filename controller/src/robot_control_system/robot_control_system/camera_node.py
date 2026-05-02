@@ -164,6 +164,9 @@ class VisionNode(Node):
 
             X, Y, Z = self.pixel_to_3d(u, v, depth)
 
+            if name == "box":
+                Z -= 0.13  # 13 cm = 0.13 meters
+
             msg = ObjectTarget()
             msg.name = name
             msg.color = color
